@@ -1,4 +1,3 @@
-from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
 
 
@@ -20,8 +19,5 @@ class StaffAccessMiddleware:
 
         if not request.user.is_authenticated:
             return redirect(f"/login/?next={path}")
-
-        if not request.user.is_staff:
-            return HttpResponseForbidden("Staff access required.")
 
         return self.get_response(request)

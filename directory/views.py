@@ -1,9 +1,13 @@
 from functools import wraps
 import re
+import secrets
+import json
 
 from django.conf import settings
 from django.contrib import messages
-from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
+from django.db import transaction
+from django.contrib.auth.models import User
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.db.models import Q
@@ -13,20 +17,78 @@ from datetime import datetime, time, timedelta
 from django.views.decorators.http import require_GET, require_POST
 
 from .canvas_client import CanvasClient, CanvasClientError
-from .models import CanvasAssignment, CanvasCourse, CanvasCredential, CanvasSubmissionReport
-from .tasks import generate_submissions_report, sync_canvas_for_user
+from .models import (
+    CanvasAssignment,
+    CanvasAssignmentModerationReport,
+    CanvasModerationAssignmentPreference,
+    CanvasModerationSubmissionReview,
+    CanvasSubAccount,
+    CanvasCourse,
+    CanvasCredential,
+    CanvasSubmissionReport,
+)
+from .tasks import (
+    _build_checked_submissions,
+    generate_assignment_moderation_report,
+    generate_submissions_report,
+    sync_canvas_for_user,
+)
 
 
-def staff_required(view_func):
+def app_user_required(view_func):
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect("login")
-        if not request.user.is_staff:
-            return HttpResponseForbidden("Staff access required.")
         return view_func(request, *args, **kwargs)
 
     return _wrapped
+
+
+def owner_account_required(view_func):
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect("login")
+        if hasattr(request.user, "canvas_subaccount_profile"):
+            messages.error(request, "Sub-accounts cannot access the admin dashboard.")
+            return redirect("canvas_assignments")
+        return view_func(request, *args, **kwargs)
+
+    return _wrapped
+
+
+def _effective_canvas_user(user):
+    profile = getattr(user, "canvas_subaccount_profile", None)
+    if profile and profile.owner_id:
+        return profile.owner
+    return user
+
+
+def _is_subaccount_user(user):
+    return bool(getattr(user, "canvas_subaccount_profile", None))
+
+
+def _generate_memorable_password():
+    words = [
+        "amber", "anchor", "apricot", "atlas", "bamboo", "beacon", "berry", "blossom",
+        "canyon", "cedar", "comet", "coral", "delta", "ember", "falcon", "forest",
+        "glacier", "harbor", "hazel", "island", "jasmine", "lagoon", "lantern", "maple",
+        "meadow", "meteor", "midnight", "nebula", "oasis", "opal", "orchid", "pepper",
+        "planet", "prairie", "quartz", "raven", "river", "saffron", "sierra", "silver",
+        "spruce", "summit", "sunset", "thunder", "timber", "tulip", "valley", "violet",
+        "willow", "zephyr",
+    ]
+    selected = [secrets.choice(words) for _ in range(4)]
+    number_part = str(secrets.randbelow(90) + 10)
+    special_part = secrets.choice("!@#$%^&*?")
+    return "-".join(selected) + number_part + special_part
+
+
+def _admin_or_assignments_redirect(request):
+    if _is_subaccount_user(request.user):
+        return redirect("canvas_assignments")
+    return redirect("admin_dashboard")
 
 
 def _parse_filter_dt(value):
@@ -89,20 +151,52 @@ def _reports_for_user(user):
     return reports, active_report
 
 
+def _rubric_criterion_names_from_raw(raw_data):
+    names = []
+    rubric = (raw_data or {}).get("rubric") or []
+    for criterion in rubric:
+        name = (
+            criterion.get("description")
+            or criterion.get("long_description")
+            or criterion.get("criterion")
+            or ""
+        ).strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _normalize_rubric_criterion_name(value):
+    return " ".join((value or "").strip().split()).casefold()
+
+
+def _assignment_has_rubric_criterion(assignment, criterion_name):
+    target = _normalize_rubric_criterion_name(criterion_name)
+    if not target:
+        return True
+    for name in _rubric_criterion_names_from_raw(assignment.raw_data):
+        if _normalize_rubric_criterion_name(name) == target:
+            return True
+    return False
+
+
 def _build_canvas_assignments_context(request):
+    canvas_user = _effective_canvas_user(request.user)
     course_id = (request.GET.get("course") or "").strip()
     course_name = (request.GET.get("course_name") or "").strip()
     assignment_type = (request.GET.get("assignment_type") or "").strip()
+    rubric_criterion = (request.GET.get("rubric_criterion") or "").strip()
     assignment_name = (request.GET.get("assignment_name") or "").strip()
     enrolled_filter = (request.GET.get("enrolled") or "all").strip().lower()
+    needs_grading_filter = (request.GET.get("needs_grading") or "all").strip().lower()
 
     date_from = _parse_filter_dt(request.GET.get("date_from"))
     date_to = _parse_filter_dt(request.GET.get("date_to"))
 
-    courses = CanvasCourse.objects.filter(user=request.user, is_active=True).order_by("name")
+    courses = CanvasCourse.objects.filter(user=canvas_user, is_active=True).order_by("name")
 
     assignments = CanvasAssignment.objects.select_related("course").filter(
-        course__user=request.user,
+        course__user=canvas_user,
         course__is_active=True,
         is_active=True,
         published=True,
@@ -118,6 +212,8 @@ def _build_canvas_assignments_context(request):
         assignments = assignments.filter(course__is_enrolled=True)
     elif enrolled_filter == "not_enrolled":
         assignments = assignments.filter(course__is_enrolled=False)
+    if needs_grading_filter == "nonzero":
+        assignments = assignments.filter(raw_data__needs_grading_count__gt=0)
     if assignment_name:
         assignments = assignments.filter(name__icontains=assignment_name)
     if date_from:
@@ -129,20 +225,41 @@ def _build_canvas_assignments_context(request):
             Q(unlock_at__lte=date_to) | Q(close_at__lte=date_to) | Q(due_at__lte=date_to)
         )
 
-    assignment_type_values = set()
-    for types in CanvasAssignment.objects.filter(
-        course__user=request.user,
+    source_assignments = CanvasAssignment.objects.filter(
+        course__user=canvas_user,
+        course__is_active=True,
         is_active=True,
-    ).values_list("submission_types", flat=True):
+        published=True,
+    )
+
+    assignment_type_values = set()
+    rubric_criteria_map = {}
+    for raw_data, types in source_assignments.values_list("raw_data", "submission_types"):
         for item in types or []:
             if item:
                 assignment_type_values.add(item)
+        for name in _rubric_criterion_names_from_raw(raw_data):
+            key = _normalize_rubric_criterion_name(name)
+            if not key:
+                continue
+            rubric_criteria_map.setdefault(key, name)
+
+    ordered_assignments = assignments.order_by("due_at", "name")
+    if rubric_criterion:
+        filtered_assignments = [
+            a for a in ordered_assignments if _assignment_has_rubric_criterion(a, rubric_criterion)
+        ]
+        assignments_result = filtered_assignments[:500]
+    else:
+        assignments_result = ordered_assignments[:500]
 
     selected = {
         "course": course_id,
         "course_name": course_name,
         "assignment_type": assignment_type,
+        "rubric_criterion": rubric_criterion,
         "enrolled": enrolled_filter,
+        "needs_grading": needs_grading_filter,
         "assignment_name": assignment_name,
         "date_from": request.GET.get("date_from", ""),
         "date_to": request.GET.get("date_to", ""),
@@ -152,29 +269,32 @@ def _build_canvas_assignments_context(request):
         selected["course"]
         or selected["course_name"]
         or selected["assignment_type"]
+        or selected["rubric_criterion"]
         or selected["assignment_name"]
         or selected["date_from"]
         or selected["date_to"]
         or selected["enrolled"] != "all"
+        or selected["needs_grading"] != "all"
     )
 
     return {
         "courses": courses,
-        "assignments": assignments.order_by("due_at", "name")[:500],
+        "assignments": assignments_result,
         "assignment_types": sorted(assignment_type_values),
+        "rubric_criteria": sorted(rubric_criteria_map.values(), key=str.casefold),
         "selected": selected,
         "has_active_filters": has_active_filters,
     }
 
 
 @require_GET
-@staff_required
+@app_user_required
 def index(request):
     return redirect("canvas_assignments")
 
 
 @require_GET
-@staff_required
+@owner_account_required
 def admin_dashboard(request):
     credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
     manageable_accounts = []
@@ -189,6 +309,7 @@ def admin_dashboard(request):
     assignments_count = CanvasAssignment.objects.filter(
         course__user=request.user, is_active=True, published=True
     ).count()
+    subaccounts = CanvasSubAccount.objects.select_related("user").filter(owner=request.user)
     return render(
         request,
         "directory/admin_dashboard.html",
@@ -199,12 +320,13 @@ def admin_dashboard(request):
             "accounts_error": accounts_error,
             "courses_count": courses_count,
             "assignments_count": assignments_count,
+            "subaccounts": subaccounts,
         },
     )
 
 
 @require_POST
-@staff_required
+@owner_account_required
 def canvas_settings_save(request):
     token = (request.POST.get("token") or "").strip()
     credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
@@ -230,16 +352,17 @@ def canvas_settings_save(request):
         messages.success(request, success)
     if error:
         messages.error(request, error)
-    return redirect("admin_dashboard")
+    return _admin_or_assignments_redirect(request)
 
 
 @require_POST
-@staff_required
+@app_user_required
 def canvas_sync(request):
-    credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
     if not credential.token:
         messages.error(request, "Add and validate your Canvas token first.")
-        return redirect("admin_dashboard")
+        return _admin_or_assignments_redirect(request)
     sync_mode = (request.POST.get("sync_mode") or "all").strip().lower()
     if sync_mode not in {"all", "existing"}:
         sync_mode = "all"
@@ -258,12 +381,12 @@ def canvas_sync(request):
             "updated_at",
         ]
     )
-    sync_canvas_for_user.delay(request.user.id, existing_only=(sync_mode == "existing"))
+    sync_canvas_for_user.delay(canvas_user.id, existing_only=(sync_mode == "existing"))
     return redirect("canvas_assignments")
 
 
 @require_POST
-@staff_required
+@owner_account_required
 def canvas_sync_source_save(request):
     credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
     sync_source = (request.POST.get("sync_source") or "enrolled").strip()
@@ -316,9 +439,10 @@ def canvas_sync_source_save(request):
 
 
 @require_GET
-@staff_required
+@app_user_required
 def canvas_sync_progress(request):
-    credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
     total = max(int(credential.sync_total_courses or 0), 0)
     processed = max(int(credential.sync_processed_courses or 0), 0)
     if total > 0:
@@ -340,24 +464,101 @@ def canvas_sync_progress(request):
 
 
 @require_POST
-@staff_required
+@owner_account_required
 def canvas_burn_everything(request):
-    deleted_assignments, _ = CanvasAssignment.objects.all().delete()
-    deleted_courses, _ = CanvasCourse.objects.all().delete()
+    user = request.user
+    deleted_submission_reports, _ = CanvasSubmissionReport.objects.filter(user=user).delete()
+    deleted_moderation_reports, _ = CanvasAssignmentModerationReport.objects.filter(user=user).delete()
+    deleted_reviews, _ = CanvasModerationSubmissionReview.objects.filter(user=user).delete()
+    deleted_preferences, _ = CanvasModerationAssignmentPreference.objects.filter(user=user).delete()
+    deleted_assignments, _ = CanvasAssignment.objects.filter(course__user=user).delete()
+    deleted_courses, _ = CanvasCourse.objects.filter(user=user).delete()
     messages.success(
         request,
-        f"Burn complete. Deleted {deleted_courses} courses and {deleted_assignments} assignments.",
+        "Burn complete. "
+        f"Deleted {deleted_courses} courses, "
+        f"{deleted_assignments} assignments, "
+        f"{deleted_submission_reports} submission reports, "
+        f"{deleted_moderation_reports} moderation reports, "
+        f"{deleted_reviews} moderation review rows, "
+        f"and {deleted_preferences} moderation preference rows for your account.",
     )
     return redirect("admin_dashboard")
 
 
+@require_POST
+@owner_account_required
+def admin_subaccount_create(request):
+    username = (request.POST.get("username") or "").strip()
+    if not username:
+        messages.error(request, "Username is required.")
+        return redirect("admin_dashboard")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,150}", username):
+        messages.error(
+            request,
+            "Username must be 3-150 chars and only contain letters, numbers, underscore, dot, or hyphen.",
+        )
+        return redirect("admin_dashboard")
+    if User.objects.filter(username__iexact=username).exists():
+        messages.error(request, f"Username '{username}' is already in use.")
+        return redirect("admin_dashboard")
+
+    password = _generate_memorable_password()
+    sub_user = User.objects.create_user(
+        username=username,
+        password=password,
+        is_staff=False,
+        is_active=True,
+    )
+    CanvasSubAccount.objects.create(owner=request.user, user=sub_user)
+    messages.success(
+        request,
+        f"Created sub-account '{username}'. Temporary password: {password}",
+    )
+    return redirect("admin_dashboard")
+
+
+@require_POST
+@owner_account_required
+def admin_subaccount_reset_password(request, subaccount_id):
+    subaccount = get_object_or_404(
+        CanvasSubAccount.objects.select_related("user"),
+        id=subaccount_id,
+        owner=request.user,
+    )
+    new_password = _generate_memorable_password()
+    subaccount.user.set_password(new_password)
+    subaccount.user.save(update_fields=["password"])
+    messages.success(
+        request,
+        f"Reset password for '{subaccount.user.username}'. New temporary password: {new_password}",
+    )
+    return redirect("admin_dashboard")
+
+
+@require_POST
+@owner_account_required
+def admin_subaccount_toggle_active(request, subaccount_id):
+    subaccount = get_object_or_404(
+        CanvasSubAccount.objects.select_related("user"),
+        id=subaccount_id,
+        owner=request.user,
+    )
+    subaccount.user.is_active = not subaccount.user.is_active
+    subaccount.user.save(update_fields=["is_active"])
+    state = "active" if subaccount.user.is_active else "disabled"
+    messages.success(request, f"Sub-account '{subaccount.user.username}' is now {state}.")
+    return redirect("admin_dashboard")
+
+
 @require_GET
-@staff_required
+@app_user_required
 def canvas_assignments(request):
-    _purge_expired_submission_reports(request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
     payload = _build_canvas_assignments_context(request)
-    credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
-    reports, active_report = _reports_for_user(request.user)
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
+    reports, active_report = _reports_for_user(canvas_user)
 
     return render(
         request,
@@ -368,12 +569,13 @@ def canvas_assignments(request):
             "credential": credential,
             "reports": reports,
             "active_report": active_report,
+            "can_access_admin": not _is_subaccount_user(request.user),
         },
     )
 
 
 @require_GET
-@staff_required
+@app_user_required
 def canvas_assignments_data(request):
     payload = _build_canvas_assignments_context(request)
     table_html = render_to_string(
@@ -391,10 +593,369 @@ def canvas_assignments_data(request):
 
 
 @require_GET
-@staff_required
+@app_user_required
+def canvas_assignment_moderate(request, assignment_id):
+    canvas_user = _effective_canvas_user(request.user)
+    assignment = get_object_or_404(
+        CanvasAssignment.objects.select_related("course"),
+        id=assignment_id,
+        course__user=canvas_user,
+        course__is_active=True,
+        is_active=True,
+        published=True,
+    )
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
+    if not credential.token:
+        messages.error(request, "Add and validate your Canvas token first.")
+        return _admin_or_assignments_redirect(request)
+
+    reports_qs = CanvasAssignmentModerationReport.objects.filter(
+        user=canvas_user,
+        assignment=assignment,
+    ).order_by("-created_at")
+    reports = list(reports_qs[:50])
+    selected_report_id = (request.GET.get("report") or "").strip()
+    active_report = next((r for r in reports if r.status in {"pending", "running"}), None)
+
+    moderation_report = None
+    if selected_report_id:
+        try:
+            selected_id = int(selected_report_id)
+        except (TypeError, ValueError):
+            selected_id = None
+        if selected_id is not None:
+            moderation_report = next((r for r in reports if r.id == selected_id), None)
+
+    if moderation_report is None and active_report is not None:
+        moderation_report = active_report
+    if moderation_report is None and reports:
+        moderation_report = reports[0]
+    if moderation_report is None:
+        moderation_report = CanvasAssignmentModerationReport.objects.create(
+            user=canvas_user,
+            assignment=assignment,
+            status="pending",
+        )
+        generate_assignment_moderation_report.delay(moderation_report.id)
+        reports = [moderation_report]
+
+    return render(
+        request,
+        "directory/canvas_assignment_moderate.html",
+        {
+            "canvas_url": settings.CANVAS_URL,
+            "assignment": assignment,
+            "moderation_report": moderation_report,
+            "moderation_reports": reports,
+            "active_report": active_report,
+        },
+    )
+
+
+@require_POST
+@app_user_required
+def canvas_assignment_moderate_regenerate(request, assignment_id):
+    canvas_user = _effective_canvas_user(request.user)
+    assignment = get_object_or_404(
+        CanvasAssignment.objects.select_related("course"),
+        id=assignment_id,
+        course__user=canvas_user,
+        course__is_active=True,
+        is_active=True,
+        published=True,
+    )
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
+    if not credential.token:
+        messages.error(request, "Add and validate your Canvas token first.")
+        return _admin_or_assignments_redirect(request)
+
+    active_report = CanvasAssignmentModerationReport.objects.filter(
+        user=canvas_user,
+        assignment=assignment,
+        status__in=["pending", "running"],
+    ).order_by("-created_at").first()
+    if active_report:
+        messages.warning(
+            request,
+            f"Report #{active_report.id} is already {active_report.status}. Wait for it to finish before regenerating.",
+        )
+        return redirect(f"/canvas/assignments/{assignment.id}/moderate/?report={active_report.id}")
+
+    new_report = CanvasAssignmentModerationReport.objects.create(
+        user=canvas_user,
+        assignment=assignment,
+        status="pending",
+    )
+    generate_assignment_moderation_report.delay(new_report.id)
+    messages.success(request, f"Started new moderation report #{new_report.id}.")
+    return redirect(f"/canvas/assignments/{assignment.id}/moderate/?report={new_report.id}")
+
+
+@require_POST
+@app_user_required
+def canvas_assignment_moderate_delete(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    report = get_object_or_404(
+        CanvasAssignmentModerationReport.objects.select_related("assignment"),
+        id=report_id,
+        user=canvas_user,
+    )
+    assignment_id = report.assignment_id
+    if report.status in {"pending", "running"}:
+        messages.error(request, f"Report #{report.id} is still {report.status}; wait for completion first.")
+        return redirect(f"/canvas/assignments/{assignment_id}/moderate/?report={report.id}")
+
+    report.delete()
+    messages.success(request, f"Deleted moderation report #{report_id}.")
+    return redirect(f"/canvas/assignments/{assignment_id}/moderate/")
+
+
+@require_GET
+@app_user_required
+def canvas_assignment_moderate_progress(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    report = get_object_or_404(
+        CanvasAssignmentModerationReport.objects.select_related("assignment", "assignment__course"),
+        id=report_id,
+        user=canvas_user,
+    )
+    total = max(int(report.total_submissions or 0), 0)
+    processed = max(int(report.processed_submissions or 0), 0)
+    stats_payload = dict(report.stats or {})
+    _inject_review_state(report, stats_payload)
+    progress = (stats_payload.get("_progress") or {}) if isinstance(stats_payload, dict) else {}
+    extraction_processed = max(int(progress.get("extraction_processed") or 0), 0)
+    extraction_total = max(int(progress.get("extraction_total") or 0), 0)
+    processing_processed = max(int(progress.get("processing_processed") or 0), 0)
+    processing_total = max(int(progress.get("processing_total") or 0), 0)
+
+    extraction_percent = 0 if extraction_total <= 0 else int((extraction_processed / extraction_total) * 100)
+    extraction_percent = min(max(extraction_percent, 0), 100)
+    processing_percent = 0 if processing_total <= 0 else int((processing_processed / processing_total) * 100)
+    processing_percent = min(max(processing_percent, 0), 100)
+
+    if report.status == "completed":
+        extraction_percent = 100
+        processing_percent = 100
+        percent = 100
+    else:
+        percent = int(progress.get("overall_percent") or int((extraction_percent + processing_percent) / 2))
+        percent = min(max(percent, 0), 100)
+
+    return JsonResponse(
+        {
+            "id": report.id,
+            "status": report.status,
+            "active": report.status in {"pending", "running"},
+            "processed_submissions": processed,
+            "total_submissions": total,
+            "percent": percent,
+            "phase": progress.get("phase") or "",
+            "extraction_processed": extraction_processed,
+            "extraction_total": extraction_total,
+            "extraction_percent": extraction_percent,
+            "processing_processed": processing_processed,
+            "processing_total": processing_total,
+            "processing_percent": processing_percent,
+            "stats": stats_payload,
+            "error": report.error or "",
+            "assignment_id": report.assignment_id,
+        }
+    )
+
+
+def _inject_review_state(report, stats_payload):
+    fail_threshold = _get_fail_threshold(report.user_id, report.assignment_id)
+    stats_payload["selected_fail_threshold"] = fail_threshold
+
+    graded_submissions = stats_payload.get("graded_submissions") or []
+    total_submissions = int(stats_payload.get("submissions_count") or 0)
+    is_percentage = bool(stats_payload.get("is_percentage"))
+    if graded_submissions:
+        stats_payload["checked_submissions"] = _build_checked_submissions(
+            graded_submissions=graded_submissions,
+            total_submissions=total_submissions,
+            report_id=report.id,
+            is_percentage=is_percentage,
+            fail_threshold=fail_threshold,
+        )
+
+    reviews = CanvasModerationSubmissionReview.objects.filter(
+        user=report.user,
+        assignment=report.assignment,
+    )
+    review_map = {}
+    checked_count = 0
+    issues_count = 0
+    for review in reviews:
+        key = str(review.submission_id)
+        review_map[key] = {
+            "notes": review.notes or "",
+            "is_checked": bool(review.is_checked),
+            "has_issue": bool(review.has_issue),
+            "updated_at": review.updated_at.isoformat(),
+        }
+        if review.is_checked:
+            checked_count += 1
+        if review.has_issue:
+            issues_count += 1
+
+    stats_payload["checked_submission_reviews"] = review_map
+    stats_payload["consolidated_review_counts"] = {
+        "checked_count": checked_count,
+        "issues_count": issues_count,
+    }
+
+
+def _get_fail_threshold(user_id, assignment_id):
+    pref = CanvasModerationAssignmentPreference.objects.filter(
+        user_id=user_id,
+        assignment_id=assignment_id,
+    ).first()
+    if not pref:
+        return 40.0
+    return _normalize_fail_threshold(pref.fail_threshold)
+
+
+def _normalize_fail_threshold(value):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return 40.0
+    return 50.0 if numeric >= 45.0 else 40.0
+
+
+@require_POST
+@app_user_required
+def canvas_assignment_moderate_save_review(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    report = get_object_or_404(
+        CanvasAssignmentModerationReport.objects.select_related("assignment"),
+        id=report_id,
+        user=canvas_user,
+    )
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
+
+    submission_id = payload.get("submission_id")
+    if submission_id is None:
+        return JsonResponse({"ok": False, "error": "submission_id is required."}, status=400)
+    try:
+        submission_id_int = int(submission_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "submission_id must be an integer."}, status=400)
+
+    notes = (payload.get("notes") or "").strip()
+    is_checked = bool(payload.get("is_checked"))
+    has_issue = bool(payload.get("has_issue"))
+
+    student_id_raw = payload.get("student_id")
+    try:
+        student_id = int(student_id_raw) if student_id_raw is not None else None
+    except (TypeError, ValueError):
+        student_id = None
+
+    student_name = (payload.get("student_name") or "")[:255]
+    grader_name = (payload.get("grader_name") or "")[:255]
+    score_raw = payload.get("score")
+    try:
+        score = float(score_raw) if score_raw is not None else None
+    except (TypeError, ValueError):
+        score = None
+
+    with transaction.atomic():
+        review, _ = CanvasModerationSubmissionReview.objects.update_or_create(
+            user=canvas_user,
+            assignment=report.assignment,
+            submission_id=submission_id_int,
+            defaults={
+                "report": report,
+                "student_id": student_id,
+                "student_name": student_name,
+                "grader_name": grader_name,
+                "score": score,
+                "notes": notes,
+                "is_checked": is_checked,
+                "has_issue": has_issue,
+            },
+        )
+
+    consolidated = CanvasModerationSubmissionReview.objects.filter(
+        user=canvas_user,
+        assignment=report.assignment,
+    )
+    checked_count = consolidated.filter(is_checked=True).count()
+    issues_count = consolidated.filter(has_issue=True).count()
+    return JsonResponse(
+        {
+            "ok": True,
+            "review": {
+                "submission_id": review.submission_id,
+                "notes": review.notes,
+                "is_checked": review.is_checked,
+                "has_issue": review.has_issue,
+                "updated_at": review.updated_at.isoformat(),
+            },
+            "consolidated_review_counts": {
+                "checked_count": checked_count,
+                "issues_count": issues_count,
+            },
+        }
+    )
+
+
+@require_POST
+@app_user_required
+def canvas_assignment_moderate_save_threshold(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    report = get_object_or_404(
+        CanvasAssignmentModerationReport.objects.select_related("assignment"),
+        id=report_id,
+        user=canvas_user,
+    )
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
+
+    raw_value = payload.get("fail_threshold")
+    try:
+        fail_threshold = float(raw_value)
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "fail_threshold must be numeric."}, status=400)
+    if fail_threshold not in {40.0, 50.0}:
+        return JsonResponse({"ok": False, "error": "fail_threshold must be 40 or 50."}, status=400)
+
+    CanvasModerationAssignmentPreference.objects.update_or_create(
+        user=canvas_user,
+        assignment=report.assignment,
+        defaults={"fail_threshold": fail_threshold},
+    )
+
+    stats_payload = dict(report.stats or {})
+    _inject_review_state(report, stats_payload)
+    return JsonResponse(
+        {
+            "ok": True,
+            "fail_threshold": fail_threshold,
+            "checked_submissions": stats_payload.get("checked_submissions") or [],
+            "checked_submission_reviews": stats_payload.get("checked_submission_reviews") or {},
+            "consolidated_review_counts": stats_payload.get("consolidated_review_counts") or {
+                "checked_count": 0,
+                "issues_count": 0,
+            },
+        }
+    )
+
+
+@require_GET
+@app_user_required
 def canvas_reports_table(request):
-    _purge_expired_submission_reports(request.user)
-    reports, _ = _reports_for_user(request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    reports, _ = _reports_for_user(canvas_user)
     table_html = render_to_string(
         "directory/_canvas_reports_table.html",
         {"reports": reports},
@@ -409,12 +970,13 @@ def canvas_reports_table(request):
 
 
 @require_POST
-@staff_required
+@app_user_required
 def canvas_reports_create(request):
-    _purge_expired_submission_reports(request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
     is_ajax = _is_ajax_request(request)
     active_exists = CanvasSubmissionReport.objects.filter(
-        user=request.user, status__in=["pending", "running"]
+        user=canvas_user, status__in=["pending", "running"]
     ).exists()
     if active_exists:
         error_msg = "A report is already running or queued. Wait for it to finish first."
@@ -427,13 +989,15 @@ def canvas_reports_create(request):
         "course": (request.POST.get("course") or "").strip(),
         "course_name": (request.POST.get("course_name") or "").strip(),
         "assignment_type": (request.POST.get("assignment_type") or "").strip(),
+        "rubric_criterion": (request.POST.get("rubric_criterion") or "").strip(),
         "enrolled": (request.POST.get("enrolled") or "all").strip().lower(),
+        "needs_grading": (request.POST.get("needs_grading") or "all").strip().lower(),
         "assignment_name": (request.POST.get("assignment_name") or "").strip(),
         "date_from": (request.POST.get("date_from") or "").strip(),
         "date_to": (request.POST.get("date_to") or "").strip(),
     }
     report = CanvasSubmissionReport.objects.create(
-        user=request.user,
+        user=canvas_user,
         status="pending",
         filters=filters,
     )
@@ -457,10 +1021,11 @@ def canvas_reports_create(request):
 
 
 @require_POST
-@staff_required
+@app_user_required
 def canvas_report_cancel(request, report_id):
-    _purge_expired_submission_reports(request.user)
-    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=canvas_user)
     if report.status in {"pending", "running"}:
         report.cancel_requested = True
         if report.status == "pending":
@@ -474,10 +1039,11 @@ def canvas_report_cancel(request, report_id):
 
 
 @require_POST
-@staff_required
+@app_user_required
 def canvas_report_delete(request, report_id):
-    _purge_expired_submission_reports(request.user)
-    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=canvas_user)
     if report.status in {"pending", "running"}:
         messages.error(request, f"Report #{report.id} is still {report.status}; cancel it first.")
         return redirect("canvas_assignments")
@@ -487,10 +1053,11 @@ def canvas_report_delete(request, report_id):
 
 
 @require_GET
-@staff_required
+@app_user_required
 def canvas_report_download(request, report_id):
-    _purge_expired_submission_reports(request.user)
-    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=canvas_user)
     if report.status != "completed" or not report.csv_content:
         return HttpResponse("Report is not ready.", status=400)
 
@@ -500,11 +1067,12 @@ def canvas_report_download(request, report_id):
 
 
 @require_GET
-@staff_required
+@app_user_required
 def canvas_report_progress(request):
-    _purge_expired_submission_reports(request.user)
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
     report = CanvasSubmissionReport.objects.filter(
-        user=request.user, status__in=["pending", "running"]
+        user=canvas_user, status__in=["pending", "running"]
     ).order_by("-created_at").first()
     if not report:
         return JsonResponse({"active": False})

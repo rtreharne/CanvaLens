@@ -144,3 +144,101 @@ class CanvasSubmissionReport(models.Model):
 
     def __str__(self):
         return f"Report {self.id} ({self.status})"
+
+
+class CanvasAssignmentModerationReport(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="canvas_assignment_moderation_reports")
+    assignment = models.ForeignKey(
+        CanvasAssignment, on_delete=models.CASCADE, related_name="moderation_reports"
+    )
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="pending")
+    total_submissions = models.IntegerField(default=0)
+    processed_submissions = models.IntegerField(default=0)
+    stats = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"Moderation {self.id} ({self.status})"
+
+
+class CanvasModerationSubmissionReview(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="canvas_moderation_submission_reviews"
+    )
+    assignment = models.ForeignKey(
+        CanvasAssignment, on_delete=models.CASCADE, related_name="moderation_submission_reviews"
+    )
+    report = models.ForeignKey(
+        CanvasAssignmentModerationReport,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="submission_reviews",
+    )
+    submission_id = models.BigIntegerField()
+    student_id = models.BigIntegerField(null=True, blank=True)
+    student_name = models.CharField(max_length=255, blank=True)
+    grader_name = models.CharField(max_length=255, blank=True)
+    score = models.FloatField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    is_checked = models.BooleanField(default=False)
+    has_issue = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "assignment", "submission_id")
+        ordering = ("-updated_at",)
+
+    def __str__(self):
+        return f"Moderation review {self.assignment_id}:{self.submission_id}"
+
+
+class CanvasModerationAssignmentPreference(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="canvas_moderation_assignment_preferences"
+    )
+    assignment = models.ForeignKey(
+        CanvasAssignment, on_delete=models.CASCADE, related_name="moderation_preferences"
+    )
+    fail_threshold = models.FloatField(default=40.0)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "assignment")
+        ordering = ("-updated_at",)
+
+    def __str__(self):
+        return f"Moderation preference {self.assignment_id} ({self.fail_threshold})"
+
+
+class CanvasSubAccount(models.Model):
+    owner = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="canvas_subaccounts_owned"
+    )
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="canvas_subaccount_profile"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("user__username",)
+        unique_together = ("owner", "user")
+
+    def __str__(self):
+        return f"{self.owner.username} -> {self.user.username}"

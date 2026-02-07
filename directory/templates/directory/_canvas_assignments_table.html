@@ -3,28 +3,32 @@
     <thead>
       <tr>
         <th>Course</th>
-        <th>Enrolled</th>
         <th>Assignment</th>
+        <th>Submissions</th>
+        <th>Needs grading</th>
         <th>Type</th>
         <th>Unlock at</th>
         <th>Close at</th>
         <th>Due at</th>
+        <th>Moderate</th>
       </tr>
     </thead>
     <tbody>
       {% for a in assignments %}
         <tr>
           <td>{{ a.course.name }}</td>
-          <td>{% if a.course.is_enrolled %}Yes{% else %}No{% endif %}</td>
           <td><a href="{{ a.html_url }}" target="_blank" rel="noopener">{{ a.name }}</a></td>
+          <td>{% if a.raw_data.has_submitted_submissions %}Yes{% else %}No{% endif %}</td>
+          <td>{{ a.raw_data.needs_grading_count|default:0 }}</td>
           <td>{{ a.submission_types|join:", " }}</td>
           <td>{{ a.unlock_at|default:"—" }}</td>
           <td>{{ a.close_at|default:"—" }}</td>
           <td>{{ a.due_at|default:"—" }}</td>
+          <td><a class="rb-button rb-button--ghost" href="/canvas/assignments/{{ a.id }}/moderate/">Moderate</a></td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="7">No assignments found.</td>
+          <td colspan="9">No assignments found.</td>
         </tr>
       {% endfor %}
     </tbody>

@@ -98,6 +98,60 @@
         </div>
       </div>
 
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Sub-Accounts</h3>
+          <p>Create and manage non-admin accounts for Canvas Lens.</p>
+          <form method="post" action="/admin-dashboard/subaccounts/create/" style="margin-bottom:16px;">
+            {% csrf_token %}
+            <label for="subaccount-username">Username</label>
+            <input id="subaccount-username" name="username" type="text" required class="rb-input" />
+            <button class="rb-button rb-button--primary" type="submit" style="margin-top: 12px;">
+              Create Sub-Account
+            </button>
+          </form>
+          <div class="table-wrap" style="overflow-x:auto;">
+            <table class="rb-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Status</th>
+                  <th>Last login</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sub in subaccounts %}
+                  <tr>
+                    <td>{{ sub.user.username }}</td>
+                    <td>{% if sub.user.is_active %}Active{% else %}Disabled{% endif %}</td>
+                    <td>{{ sub.user.last_login|default:"Never" }}</td>
+                    <td>
+                      <form method="post" action="/admin-dashboard/subaccounts/{{ sub.id }}/reset-password/" style="display:inline;">
+                        {% csrf_token %}
+                        <button class="rb-button rb-button--ghost" type="submit">Reset password</button>
+                      </form>
+                      <form method="post" action="/admin-dashboard/subaccounts/{{ sub.id }}/toggle-active/" style="display:inline;">
+                        {% csrf_token %}
+                        {% if sub.user.is_active %}
+                          <button class="rb-button rb-button--secondary" type="submit">Disable</button>
+                        {% else %}
+                          <button class="rb-button rb-button--primary" type="submit">Enable</button>
+                        {% endif %}
+                      </form>
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="4">No sub-accounts yet.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div class="rb-buttongroup">
         <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Canvas Lens</a>
         <form method="post" action="/canvas/burn-everything/" style="display:inline;" onsubmit="return confirm('Delete all courses and assignments? This cannot be undone.');">

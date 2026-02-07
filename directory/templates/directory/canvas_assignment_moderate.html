@@ -1,0 +1,1601 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas Lens - Moderate</title>
+  <link rel="stylesheet" href="https://www.liverpool.ac.uk/rb/latest/assets/redbrick.css" />
+  <style>
+    html { scroll-behavior: smooth; }
+    .rb-page { background: #f5f6fa; }
+    .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
+    .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
+    .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .sync-progress-track { width: 100%; height: 12px; background: #d9dee8; border-radius: 999px; overflow: hidden; }
+    .sync-progress-fill { height: 100%; width: 0%; background: #005ea5; transition: width 0.25s ease; }
+    .progress-stage { margin-top: 10px; }
+    .progress-stage-label {
+      margin: 0 0 4px 0;
+      font-size: 0.88rem;
+      color: #41557b;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 14px;
+    }
+    @media (max-width: 1000px) {
+      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+    .stat-card {
+      border: 1px solid #d9dee8;
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px 12px;
+    }
+    .stat-title {
+      font-size: 0.9rem;
+      color: #59627a;
+      margin: 0 0 4px 0;
+    }
+    .stat-value {
+      margin: 0;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #132c51;
+    }
+    .stat-value-link {
+      color: #005ea5;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .stat-value-link:hover {
+      color: #0a4684;
+    }
+    .histogram-card { grid-column: 1 / -1; }
+    .classification-card { grid-column: 1 / -1; }
+    .boxplot-card { grid-column: 1 / -1; }
+    .histogram-title {
+      margin: 0 0 8px 0;
+      font-size: 1rem;
+      color: #21385f;
+      font-weight: 600;
+    }
+    .histogram-wrap {
+      width: 100%;
+      min-height: 140px;
+      border: 1px solid #e2e7f0;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #fbfcfe 0%, #f6f8fc 100%);
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    .boxplot-wrap {
+      width: 100%;
+      min-height: 240px;
+      border: 1px solid #e2e7f0;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #fbfcfe 0%, #f6f8fc 100%);
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    .boxplot-tooltip {
+      position: fixed;
+      z-index: 2000;
+      pointer-events: auto;
+      min-width: 220px;
+      max-width: 320px;
+      background: #ffffff;
+      border: 1px solid #d6deef;
+      border-radius: 8px;
+      box-shadow: 0 8px 18px rgba(21, 41, 71, 0.18);
+      padding: 8px 10px;
+      color: #1f3455;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .boxplot-tooltip a {
+      color: #005ea5;
+      text-decoration: underline;
+      pointer-events: auto;
+    }
+    .checked-table-wrap {
+      overflow-x: auto;
+      border: 1px solid #e2e7f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .checked-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 840px;
+    }
+    .checked-table th,
+    .checked-table td {
+      border-bottom: 1px solid #e6ebf4;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.9rem;
+      color: #2c3f60;
+    }
+    .checked-table th {
+      background: #f5f8fc;
+      font-weight: 600;
+      color: #2b456d;
+    }
+    .checked-row-fail td {
+      background: #fff1f1;
+    }
+    .checked-status-badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .checked-status-fail {
+      color: #8d1b1b;
+      background: #ffdede;
+      border: 1px solid #e9b3b3;
+    }
+    .checked-status-pass {
+      color: #1f5a2f;
+      background: #e8f7ed;
+      border: 1px solid #b9e3c7;
+    }
+    .checked-notes {
+      width: 100%;
+      min-width: 220px;
+      min-height: 54px;
+      resize: vertical;
+      border: 1px solid #d3dceb;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.88rem;
+      color: #223a5f;
+      box-sizing: border-box;
+    }
+    .checked-signoff {
+      transform: scale(1.2);
+      margin-top: 6px;
+    }
+    .outstanding-set {
+      margin: 0 0 14px 0;
+      border: 1px solid #e2e7f0;
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .outstanding-set-header {
+      margin: 0;
+      padding: 8px 10px;
+      background: #f5f8fc;
+      color: #2b456d;
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+    .outstanding-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .outstanding-table th,
+    .outstanding-table td {
+      border-bottom: 1px solid #e6ebf4;
+      padding: 7px 10px;
+      text-align: left;
+      color: #2c3f60;
+      vertical-align: top;
+    }
+    .outstanding-table th {
+      background: #fbfcff;
+      font-weight: 600;
+      color: #2b456d;
+    }
+    .outstanding-flag {
+      color: #8d1b1b;
+      font-weight: 700;
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .history-table th,
+    .history-table td {
+      border-bottom: 1px solid #e6ebf4;
+      padding: 8px 10px;
+      text-align: left;
+      color: #2c3f60;
+      vertical-align: top;
+    }
+    .history-table th {
+      font-weight: 600;
+      color: #2b456d;
+      background: #f5f8fc;
+    }
+    .history-current {
+      font-weight: 700;
+      color: #0d4d92;
+    }
+    .moderation-anchor {
+      scroll-margin-top: 96px;
+    }
+    .back-to-top-btn {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 1000;
+    }
+    .moderation-quicknav {
+      position: fixed;
+      right: 18px;
+      top: 170px;
+      z-index: 1200;
+      width: 220px;
+      background: #ffffff;
+      border: 1px solid #d8e0ef;
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(23, 45, 78, 0.15);
+      padding: 10px 12px;
+    }
+    .moderation-quicknav-title {
+      margin: 0 0 8px 0;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #3d557f;
+      font-weight: 700;
+    }
+    .moderation-quicknav a {
+      display: block;
+      color: #005ea5;
+      text-decoration: none;
+      font-size: 0.9rem;
+      padding: 4px 0;
+    }
+    .moderation-quicknav a:hover {
+      text-decoration: underline;
+      color: #0a4684;
+    }
+    @media (max-width: 1300px) {
+      .moderation-quicknav {
+        position: sticky;
+        top: 10px;
+        right: auto;
+        width: auto;
+        margin: 8px 0 12px 0;
+      }
+      .back-to-top-btn {
+        right: 14px;
+        bottom: 14px;
+      }
+    }
+    @media print {
+      .moderation-quicknav,
+      .rb-header__global,
+      .rb-buttongroup,
+      #moderation-progress-card,
+      #moderation-error-card {
+        display: none !important;
+      }
+      .rb-page {
+        background: #fff !important;
+      }
+      .rb-card,
+      .stat-card,
+      .outstanding-set {
+        box-shadow: none !important;
+        break-inside: avoid;
+      }
+      a[href]:after {
+        content: "" !important;
+      }
+    }
+    .is-hidden { display: none !important; }
+    .analysis-list {
+      margin: 0;
+      padding-left: 20px;
+      color: #2c3f60;
+      font-size: 0.92rem;
+    }
+    .analysis-list li { margin-bottom: 4px; }
+    .classification-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .classification-table th,
+    .classification-table td {
+      border-bottom: 1px solid #e6ebf4;
+      padding: 7px 10px;
+      text-align: left;
+      color: #2c3f60;
+    }
+    .classification-table th {
+      background: #f5f8fc;
+      font-weight: 600;
+      color: #2b456d;
+    }
+  </style>
+</head>
+<body class="rb-page">
+  <nav id="moderation-quicknav" class="moderation-quicknav" aria-label="Moderation quick navigation">
+    <p class="moderation-quicknav-title">On This Page</p>
+    <a href="#moderation-history-section">Report history</a>
+    <a href="#moderation-summary-card">Summary stats</a>
+    <a href="#moderation-histogram-section">Grade distribution</a>
+    <a href="#moderation-classification-section">Classification zones</a>
+    <a href="#moderation-boxplot-section">Distribution by marker</a>
+    <a href="#moderation-outstanding-section">Outstanding marking</a>
+    <a href="#moderation-methods-section">Statistical methods</a>
+    <a href="#moderation-checked-section">Checked submissions</a>
+  </nav>
+
+  <header class="rb-header">
+    <div class="rb-header__global rb-header__container">
+      <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
+        <span class="sr-only">Home</span>
+      </a>
+      <div style="margin-left:auto;"></div>
+    </div>
+    <div class="rb-header__section">
+      <div class="rb-block-container">
+        <img class="rb-header__logo" src="{% static 'uol_logo_reversed.png' %}" alt="University of Liverpool" />
+      </div>
+    </div>
+  </header>
+
+  <section class="rb-block-cover bg-rb--color--blue text-white">
+    <div class="rb-block-container">
+      <div class="rb-title-block">
+        <h2 class="rb-lockup">Canvas Lens</h2>
+        <p style="margin:6px 0 0 0;">Assignment moderation summary</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="rb-block-cover">
+    <div class="rb-block-container">
+      <div class="rb-buttongroup" style="margin-bottom: 12px;">
+        <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Back to assignments</a>
+        {% if assignment.html_url %}
+          <a class="rb-button rb-button--ghost" href="{{ assignment.html_url }}" target="_blank" rel="noopener">Open in Canvas</a>
+        {% endif %}
+        <button id="print-report-btn" type="button" class="rb-button rb-button--ghost">Print Report</button>
+        <form method="post" action="/canvas/assignments/{{ assignment.id }}/moderate/regenerate/" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="rb-button rb-button--primary">Regenerate report</button>
+        </form>
+      </div>
+
+      <div id="moderation-assignment-overview" class="rb-card moderation-anchor">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">{{ assignment.name }}</h3>
+          <p style="margin:0;">Course: {{ assignment.course.name }}</p>
+        </div>
+      </div>
+
+      <div id="moderation-progress-card" class="rb-card moderation-anchor">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Moderation Progress</h3>
+          <p id="moderation-status-line" style="margin-top:0;">Status: {{ moderation_report.status }}</p>
+          <div class="progress-stage">
+            <p id="moderation-extraction-line" class="progress-stage-label">Extracting data from Canvas: 0% (0/0)</p>
+            <div class="sync-progress-track" aria-label="Extraction progress">
+              <div id="moderation-extraction-fill" class="sync-progress-fill" style="width:0%;"></div>
+            </div>
+          </div>
+          <div class="progress-stage">
+            <p id="moderation-processing-line" class="progress-stage-label">Processing: 0%</p>
+            <div class="sync-progress-track" aria-label="Processing progress">
+              <div id="moderation-processing-fill" class="sync-progress-fill" style="width:0%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="moderation-history-section" class="rb-card moderation-anchor">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Report history</h3>
+          <p style="margin:0 0 8px 0; color:#41557b;">
+            Reports are permanent. Regenerating creates a new version and keeps previous reports.
+          </p>
+          <div class="checked-table-wrap">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Report</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Started</th>
+                  <th>Completed</th>
+                  <th>Open</th>
+                  <th>Delete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in moderation_reports %}
+                  <tr>
+                    <td>
+                      {% if r.id == moderation_report.id %}
+                        <span class="history-current">#{{ r.id }} (current)</span>
+                      {% else %}
+                        #{{ r.id }}
+                      {% endif %}
+                    </td>
+                    <td>{{ r.status }}</td>
+                    <td>{{ r.created_at|date:"Y-m-d H:i:s" }}</td>
+                    <td>{% if r.started_at %}{{ r.started_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
+                    <td>{% if r.completed_at %}{{ r.completed_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
+                    <td>
+                      <a href="/canvas/assignments/{{ assignment.id }}/moderate/?report={{ r.id }}">View</a>
+                    </td>
+                    <td>
+                      {% if r.id != moderation_report.id %}
+                        <form method="post" action="{% url 'canvas_assignment_moderate_delete' r.id %}" onsubmit="return confirm('Delete moderation report #{{ r.id }}?');">
+                          {% csrf_token %}
+                          <button type="submit">Delete</button>
+                        </form>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="7">No moderation reports yet.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="moderation-error-card" class="rb-card is-hidden">
+        <div class="rb-card__inner text-rb--color--error">
+          <span id="moderation-error-text"></span>
+        </div>
+      </div>
+
+      <div id="moderation-empty-card" class="rb-card is-hidden">
+        <div class="rb-card__inner">
+          No scored submissions found for this assignment.
+        </div>
+      </div>
+
+      <div id="moderation-summary-card" class="rb-card moderation-anchor is-hidden">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Summary stats</h3>
+          <p id="moderation-count-line" style="margin-top:0;"></p>
+          <div class="rb-fieldgroup" style="margin-bottom:12px;">
+            <label for="fail-threshold-input">Fail threshold (%)</label>
+            <select id="fail-threshold-input" style="max-width:160px;">
+              <option value="40" selected>40%</option>
+              <option value="50">50%</option>
+            </select>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <p id="fail-count-title" class="stat-title">Fail count</p>
+              <p class="stat-value"><a id="fail-count-value" class="stat-value-link" href="#moderation-checked-section">0</a></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Checked submissions</p>
+              <p class="stat-value"><a id="stat-checked-count" class="stat-value-link" href="#moderation-checked-section">0</a></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Submissions with issues</p>
+              <p class="stat-value"><a id="stat-issues-count" class="stat-value-link" href="#moderation-checked-section">0</a></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Grade range</p>
+              <p id="stat-grade-range" class="stat-value"></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Median</p>
+              <p id="stat-median" class="stat-value"></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Average</p>
+              <p id="stat-average" class="stat-value"></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Min</p>
+              <p id="stat-min" class="stat-value"></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Max</p>
+              <p id="stat-max" class="stat-value"></p>
+            </div>
+            <div id="moderation-histogram-section" class="stat-card histogram-card moderation-anchor">
+              <p class="histogram-title">Grade distribution</p>
+              <div id="moderation-histogram" class="histogram-wrap"></div>
+            </div>
+            <div id="moderation-classification-section" class="stat-card classification-card moderation-anchor">
+              <p class="histogram-title">Classification zones</p>
+              <div class="checked-table-wrap">
+                <table class="classification-table">
+                  <thead>
+                    <tr>
+                      <th>Zone</th>
+                      <th>Range (%)</th>
+                      <th>Count</th>
+                    </tr>
+                  </thead>
+                  <tbody id="classification-zones-body"></tbody>
+                </table>
+              </div>
+              <p id="classification-borderline-line" style="margin:8px 0 0 0; font-size:0.9rem; color:#41557b;"></p>
+            </div>
+            <div id="moderation-boxplot-section" class="stat-card boxplot-card moderation-anchor">
+              <p class="histogram-title">Distribution by marker</p>
+              <div class="rb-fieldgroup" style="margin: 0 0 8px 0; max-width: 260px;">
+                <label for="boxplot-sort-select">Order markers by</label>
+                <select id="boxplot-sort-select">
+                  <option value="name_asc">Name (A-Z)</option>
+                  <option value="median_asc">Median (low to high)</option>
+                  <option value="median_desc">Median (high to low)</option>
+                  <option value="mean_asc">Mean (low to high)</option>
+                  <option value="mean_desc">Mean (high to low)</option>
+                </select>
+              </div>
+              <div id="moderation-boxplot" class="boxplot-wrap"></div>
+            </div>
+          </div>
+          <div id="moderation-methods-section" class="rb-card moderation-anchor" style="margin:12px 0 0 0;">
+            <div class="rb-card__inner" style="padding:10px 12px;">
+              <p style="margin:0 0 6px 0; font-weight:600;">Statistical methods</p>
+              <p id="stats-significance-line" style="margin:0 0 6px 0; font-size:0.92rem; color:#34496e;"></p>
+              <ul id="stats-analysis-list" class="analysis-list"></ul>
+            </div>
+          </div>
+          <div id="moderation-outstanding-section" class="rb-card moderation-anchor" style="margin:12px 0 0 0;">
+            <div class="rb-card__inner" style="padding:10px 12px;">
+              <p style="margin:0 0 6px 0; font-weight:600;">Outstanding marking by group set/category</p>
+              <div id="outstanding-group-sets"></div>
+            </div>
+          </div>
+          <div id="moderation-checked-section" class="rb-card moderation-anchor" style="margin:12px 0 0 0;">
+            <div class="rb-card__inner" style="padding:10px 12px;">
+              <p style="margin:0 0 6px 0; font-weight:600;">Checked submissions</p>
+              <p id="checked-submissions-summary" style="margin:0 0 8px 0; font-size:0.9rem; color:#41557b;"></p>
+              <div class="checked-table-wrap">
+                <table class="checked-table">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Student</th>
+                      <th>Marker</th>
+                      <th>Score</th>
+                      <th>Submission</th>
+                      <th>Notes</th>
+                      <th>Checked</th>
+                      <th>Issue</th>
+                    </tr>
+                  </thead>
+                  <tbody id="checked-submissions-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="boxplot-tooltip" class="boxplot-tooltip is-hidden"></div>
+  <button id="back-to-top-btn" class="rb-button rb-button--primary back-to-top-btn is-hidden" type="button">
+    Back to top
+  </button>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    (function () {
+      const backToTopBtn = document.getElementById("back-to-top-btn");
+      if (!backToTopBtn) return;
+
+      function updateVisibility() {
+        backToTopBtn.classList.toggle("is-hidden", window.scrollY <= 1000);
+      }
+
+      backToTopBtn.addEventListener("click", function () {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      window.addEventListener("scroll", updateVisibility, { passive: true });
+      updateVisibility();
+    })();
+
+    (function () {
+      const reportId = {{ moderation_report.id }};
+      const statusLine = document.getElementById("moderation-status-line");
+      const extractionLine = document.getElementById("moderation-extraction-line");
+      const extractionFill = document.getElementById("moderation-extraction-fill");
+      const processingLine = document.getElementById("moderation-processing-line");
+      const processingFill = document.getElementById("moderation-processing-fill");
+      const progressCard = document.getElementById("moderation-progress-card");
+      const statsCard = document.getElementById("moderation-summary-card");
+      const emptyCard = document.getElementById("moderation-empty-card");
+      const errorCard = document.getElementById("moderation-error-card");
+      const errorText = document.getElementById("moderation-error-text");
+      const countLine = document.getElementById("moderation-count-line");
+      const gradeRange = document.getElementById("stat-grade-range");
+      const median = document.getElementById("stat-median");
+      const average = document.getElementById("stat-average");
+      const min = document.getElementById("stat-min");
+      const max = document.getElementById("stat-max");
+      const checkedCountStat = document.getElementById("stat-checked-count");
+      const issuesCountStat = document.getElementById("stat-issues-count");
+      const thresholdInput = document.getElementById("fail-threshold-input");
+      const failCountTitle = document.getElementById("fail-count-title");
+      const failCountValue = document.getElementById("fail-count-value");
+      const statsSignificanceLine = document.getElementById("stats-significance-line");
+      const statsAnalysisList = document.getElementById("stats-analysis-list");
+      const histogramEl = document.getElementById("moderation-histogram");
+      const boxplotEl = document.getElementById("moderation-boxplot");
+      const boxplotSortSelect = document.getElementById("boxplot-sort-select");
+      const boxplotTooltip = document.getElementById("boxplot-tooltip");
+      const checkedSummary = document.getElementById("checked-submissions-summary");
+      const checkedBody = document.getElementById("checked-submissions-body");
+      const classificationZonesBody = document.getElementById("classification-zones-body");
+      const classificationBorderlineLine = document.getElementById("classification-borderline-line");
+      const outstandingGroupSets = document.getElementById("outstanding-group-sets");
+      const printReportBtn = document.getElementById("print-report-btn");
+      if (!reportId || !statusLine || !extractionLine || !extractionFill || !processingLine || !processingFill) return;
+
+      let pollTimer = null;
+      let latestScoreValues = [];
+      let latestIsPercentage = true;
+      let latestCheckedRows = [];
+      let resizeTimer = null;
+      let tooltipHideTimer = null;
+      let failThresholdSaveTimer = null;
+      let saveTimersBySubmission = {};
+      let reviewMap = {};
+      const histogramState = {
+        d3: null,
+        x: null,
+        bins: [],
+        bars: null,
+        thresholdLine: null,
+        thresholdLabel: null,
+      };
+      let markerDistributions = [];
+
+      function fmt(value) {
+        if (value === null || value === undefined || value === "") return "—";
+        const num = Number(value);
+        if (Number.isNaN(num)) return "—";
+        return num.toFixed(2);
+      }
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function hideTooltipSoon() {
+        if (!boxplotTooltip) return;
+        if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+        tooltipHideTimer = setTimeout(function () {
+          boxplotTooltip.classList.add("is-hidden");
+        }, 150);
+      }
+
+      function renderStats(stats) {
+        const count = Number(stats.count || 0);
+        const total = Number(stats.submissions_count || 0);
+        const isPercentage = Boolean(stats.is_percentage);
+        latestIsPercentage = isPercentage;
+        if (thresholdInput) {
+          const selectedThreshold = Number(stats.selected_fail_threshold);
+          if (!Number.isNaN(selectedThreshold)) {
+            thresholdInput.value = String(selectedThreshold);
+          }
+        }
+        latestScoreValues = (stats.score_values || []).map((v) => Number(v)).filter((v) => !Number.isNaN(v));
+        markerDistributions = Array.isArray(stats.marker_distributions) ? stats.marker_distributions : [];
+        reviewMap = stats.checked_submission_reviews || {};
+        const suffix = isPercentage ? "%" : "";
+        countLine.textContent = "Scored submissions: " + count + " / " + total;
+        gradeRange.textContent = fmt(stats.grade_range) + suffix;
+        median.textContent = fmt(stats.median) + suffix;
+        average.textContent = fmt(stats.average) + suffix;
+        min.textContent = fmt(stats.min) + suffix;
+        max.textContent = fmt(stats.max) + suffix;
+        renderTestsSummary(stats.tests_summary || {});
+        renderHistogram();
+        renderClassificationZones();
+        renderBoxplot();
+        renderOutstandingByGroupSets(stats);
+        renderCheckedSubmissions(stats);
+        renderConsolidatedReviewCounts(stats.consolidated_review_counts || {});
+        updateFailCount();
+      }
+
+      function renderConsolidatedReviewCounts(counts) {
+        if (checkedCountStat) checkedCountStat.textContent = String(Number(counts.checked_count || 0));
+        if (issuesCountStat) issuesCountStat.textContent = String(Number(counts.issues_count || 0));
+      }
+
+      function renderClassificationZones() {
+        if (!classificationZonesBody || !classificationBorderlineLine) return;
+        classificationZonesBody.innerHTML = "";
+        if (!latestIsPercentage) {
+          classificationBorderlineLine.textContent = "Classification zones available when scores are percentages.";
+          return;
+        }
+        const selectedFailThreshold = Number(thresholdInput ? thresholdInput.value : 40);
+        const values = latestScoreValues || [];
+        const totalValues = values.length || 0;
+        function fmtSig3(v) {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return "0";
+          return Number(n.toPrecision(3)).toString();
+        }
+        function pctOfTotal(count) {
+          if (!totalValues) return "0.0";
+          return ((count / totalValues) * 100).toFixed(1);
+        }
+        const zones = selectedFailThreshold === 50
+          ? [
+              { label: "Fail", min: 0, maxExclusive: 50 },
+              { label: "2:2", min: 50, maxExclusive: 60 },
+              { label: "2:1", min: 60, maxExclusive: 70 },
+              { label: "1st", min: 70, maxExclusive: 100.0001 },
+            ]
+          : [
+              { label: "Fail", min: 0, maxExclusive: 40 },
+              { label: "3rd", min: 40, maxExclusive: 50 },
+              { label: "2:2", min: 50, maxExclusive: 60 },
+              { label: "2:1", min: 60, maxExclusive: 70 },
+              { label: "1st", min: 70, maxExclusive: 100.0001 },
+            ];
+        let totalInZones = 0;
+        zones.forEach((zone) => {
+          const count = values.filter((v) => v >= zone.min && v < zone.maxExclusive).length;
+          totalInZones += count;
+          const rangeMax = zone.maxExclusive >= 100 ? 100 : (zone.maxExclusive - 0.0001);
+          const rangeText = fmtSig3(zone.min) + " - " + fmtSig3(rangeMax);
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + escapeHtml(zone.label) + "</td>" +
+            "<td>" + rangeText + "</td>" +
+            "<td>" + count + " (" + pctOfTotal(count) + "%)</td>";
+          classificationZonesBody.appendChild(tr);
+        });
+        const totalRow = document.createElement("tr");
+        totalRow.innerHTML =
+          "<td><strong>Total</strong></td>" +
+          "<td>All zones</td>" +
+          "<td><strong>" + totalInZones + " (" + pctOfTotal(totalInZones) + "%)</strong></td>";
+        classificationZonesBody.appendChild(totalRow);
+        const thresholds = selectedFailThreshold === 50 ? [50, 60, 70] : [40, 50, 60, 70];
+        const borderlineCount = values.filter((v) => thresholds.some((t) => Math.abs(v - t) <= 2)).length;
+        classificationBorderlineLine.textContent =
+          "Borderline (within ±2% of " + thresholds.join("/") + "): " + borderlineCount + ".";
+      }
+
+      function renderOutstandingByGroupSets(stats) {
+        if (!outstandingGroupSets) return;
+        const sets = Array.isArray(stats.outstanding_by_group_sets) ? stats.outstanding_by_group_sets : [];
+        if (!sets.length) {
+          outstandingGroupSets.innerHTML = "<p style=\"margin:0; color:#41557b;\">No group sets/categories available for this assignment.</p>";
+          return;
+        }
+        const blocks = sets.map((setItem) => {
+          const rows = (Array.isArray(setItem.groups) ? setItem.groups : [])
+            .filter((row) => Number(row.outstanding || 0) > 0);
+          if (!rows.length) return "";
+          const body = rows.map((row) => {
+            const outstanding = Number(row.outstanding || 0);
+            return (
+              "<tr>" +
+              "<td>" + escapeHtml(row.group_name || "(No group)") + "</td>" +
+              "<td>" + String(Number(row.total || 0)) + "</td>" +
+              "<td>" + String(Number(row.submitted || 0)) + "</td>" +
+              "<td>" + String(Number(row.graded || 0)) + "</td>" +
+              "<td>" + (outstanding > 0 ? "<span class=\"outstanding-flag\">" + String(outstanding) + "</span>" : "0") + "</td>" +
+              "</tr>"
+            );
+          }).join("");
+          const title = escapeHtml(setItem.group_set_name || "Group set");
+          return (
+            "<section class=\"outstanding-set\">" +
+            "<p class=\"outstanding-set-header\">" + title +
+            " • Outstanding: " + String(Number(setItem.outstanding_total || 0)) + "</p>" +
+            "<table class=\"outstanding-table\">" +
+            "<thead><tr><th>Group</th><th>Total</th><th>Submitted</th><th>Graded</th><th>Outstanding</th></tr></thead>" +
+            "<tbody>" + body + "</tbody>" +
+            "</table>" +
+            "</section>"
+          );
+        }).filter(Boolean);
+        if (!blocks.length) {
+          outstandingGroupSets.innerHTML = "<p style=\"margin:0; color:#41557b;\">No non-zero outstanding marking found across group sets/categories.</p>";
+          return;
+        }
+        outstandingGroupSets.innerHTML = blocks.join("");
+      }
+
+      function renderCheckedSubmissions(stats) {
+        if (!checkedSummary || !checkedBody) return;
+        const rows = Array.isArray(stats.checked_submissions) ? stats.checked_submissions : [];
+        latestCheckedRows = rows.slice();
+        const total = Number(stats.submissions_count || 0);
+        const tenPercent = Math.ceil(total * 0.10);
+        checkedSummary.textContent = "Selected " + rows.length + " rows. Pass sample target: " + tenPercent + " (10% of all submissions, including any boundary passes within 2% of 50/60/70), plus all fails.";
+        checkedBody.innerHTML = "";
+        rows.forEach((row, idx) => {
+          const tr = document.createElement("tr");
+          const isFail = row.selection_reason === "fail";
+          if (isFail) tr.classList.add("checked-row-fail");
+          const scoreText = fmt(row.score) + (latestIsPercentage ? "%" : "");
+          const linkHtml = row.submission_url
+            ? "<a href=\"" + escapeHtml(row.submission_url) + "\" target=\"_blank\" rel=\"noopener\">Open</a>"
+            : "—";
+          const statusBadge = isFail
+            ? "<span class=\"checked-status-badge checked-status-fail\">FAIL</span>"
+            : "<span class=\"checked-status-badge checked-status-pass\">PASS</span>";
+          const submissionKey = row.submission_id !== null && row.submission_id !== undefined ? String(row.submission_id) : "";
+          const saved = reviewMap[submissionKey] || {};
+          const safeId = submissionKey ? escapeHtml(submissionKey) : "";
+          const checkedAttr = saved.is_checked ? " checked" : "";
+          const issueAttr = saved.has_issue ? " checked" : "";
+          const notesValue = escapeHtml(saved.notes || "");
+          tr.innerHTML =
+            "<td>" + statusBadge + "</td>" +
+            "<td>" + escapeHtml(row.student_name || "Unknown") + "</td>" +
+            "<td>" + escapeHtml(row.grader_name || "—") + "</td>" +
+            "<td>" + escapeHtml(scoreText) + "</td>" +
+            "<td>" + linkHtml + "</td>" +
+            "<td><textarea class=\"checked-notes\" placeholder=\"Notes\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\">" + notesValue + "</textarea></td>" +
+            "<td><input class=\"checked-signoff checked-toggle\" type=\"checkbox\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\" aria-label=\"Checked for " + escapeHtml(row.student_name || "submission") + "\"" + checkedAttr + " /></td>" +
+            "<td><input class=\"checked-signoff issue-toggle\" type=\"checkbox\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\" aria-label=\"Issue for " + escapeHtml(row.student_name || "submission") + "\"" + issueAttr + " /></td>";
+          checkedBody.appendChild(tr);
+        });
+        wireCheckedSubmissionInputs();
+      }
+
+      function getCookie(name) {
+        const cookies = document.cookie ? document.cookie.split(";") : [];
+        for (let i = 0; i < cookies.length; i += 1) {
+          const cookie = cookies[i].trim();
+          if (cookie.startsWith(name + "=")) {
+            return decodeURIComponent(cookie.slice(name.length + 1));
+          }
+        }
+        return "";
+      }
+
+      function findCheckedRowBySubmissionId(submissionId) {
+        const id = String(submissionId || "");
+        return latestCheckedRows.find((row) => String(row.submission_id || "") === id) || null;
+      }
+
+      function findSubmissionControl(selector, submissionId) {
+        if (!checkedBody) return null;
+        const target = String(submissionId || "");
+        const controls = checkedBody.querySelectorAll(selector);
+        for (let i = 0; i < controls.length; i += 1) {
+          if (String(controls[i].getAttribute("data-submission-id") || "") === target) {
+            return controls[i];
+          }
+        }
+        return null;
+      }
+
+      async function saveCheckedSubmissionReview(submissionId) {
+        if (!submissionId) return;
+        const notesEl = findSubmissionControl("textarea.checked-notes[data-submission-id]", submissionId);
+        const checkedEl = findSubmissionControl("input.checked-toggle[data-submission-id]", submissionId);
+        const issueEl = findSubmissionControl("input.issue-toggle[data-submission-id]", submissionId);
+        const row = findCheckedRowBySubmissionId(submissionId);
+        if (!row) return;
+        const payload = {
+          submission_id: row.submission_id,
+          student_id: row.student_id,
+          student_name: row.student_name || "",
+          grader_name: row.grader_name || "",
+          score: row.score,
+          notes: notesEl ? notesEl.value : "",
+          is_checked: checkedEl ? checkedEl.checked : false,
+          has_issue: issueEl ? issueEl.checked : false,
+        };
+        try {
+          const resp = await fetch("/canvas/assignments/moderate/" + reportId + "/review/save/", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": getCookie("csrftoken"),
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (!data || !data.ok) return;
+          reviewMap[String(submissionId)] = data.review || payload;
+          renderConsolidatedReviewCounts(data.consolidated_review_counts || {});
+        } catch (err) {
+          // Keep UI responsive; next change can retry.
+        }
+      }
+
+      function wireCheckedSubmissionInputs() {
+        if (!checkedBody) return;
+        const notesInputs = checkedBody.querySelectorAll("textarea.checked-notes[data-submission-id]");
+        const checkedInputs = checkedBody.querySelectorAll("input.checked-toggle[data-submission-id]");
+        const issueInputs = checkedBody.querySelectorAll("input.issue-toggle[data-submission-id]");
+
+        notesInputs.forEach((el) => {
+          el.addEventListener("input", function () {
+            const submissionId = this.getAttribute("data-submission-id") || "";
+            if (!submissionId) return;
+            if (saveTimersBySubmission[submissionId]) {
+              clearTimeout(saveTimersBySubmission[submissionId]);
+            }
+            saveTimersBySubmission[submissionId] = setTimeout(function () {
+              saveCheckedSubmissionReview(submissionId);
+            }, 500);
+          });
+        });
+        checkedInputs.forEach((el) => {
+          el.addEventListener("change", function () {
+            const submissionId = this.getAttribute("data-submission-id") || "";
+            saveCheckedSubmissionReview(submissionId);
+          });
+        });
+        issueInputs.forEach((el) => {
+          el.addEventListener("change", function () {
+            const submissionId = this.getAttribute("data-submission-id") || "";
+            saveCheckedSubmissionReview(submissionId);
+          });
+        });
+      }
+
+      async function saveFailThreshold() {
+        if (!thresholdInput) return;
+        const failThreshold = Number(thresholdInput.value);
+        if (Number.isNaN(failThreshold)) return;
+        try {
+          const resp = await fetch("/canvas/assignments/moderate/" + reportId + "/threshold/save/", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": getCookie("csrftoken"),
+            },
+            body: JSON.stringify({ fail_threshold: failThreshold }),
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (!data || !data.ok) return;
+          if (typeof data.fail_threshold === "number") {
+            thresholdInput.value = String(data.fail_threshold);
+          }
+          if (data.checked_submission_reviews) {
+            reviewMap = data.checked_submission_reviews;
+          }
+          renderConsolidatedReviewCounts(data.consolidated_review_counts || {});
+          renderCheckedSubmissions({
+            checked_submissions: data.checked_submissions || [],
+            submissions_count: latestScoreValues.length,
+          });
+        } catch (err) {
+          // Keep UI responsive; retry on next input change.
+        }
+      }
+
+      function renderTestsSummary(summary) {
+        if (!statsSignificanceLine || !statsAnalysisList) return;
+        statsAnalysisList.innerHTML = "";
+        if (!summary || Object.keys(summary).length === 0) {
+          statsSignificanceLine.textContent = "";
+          return;
+        }
+        const alpha = Number(summary.alpha || 0.05);
+        const correction = summary.multiple_testing_correction || "Holm-Bonferroni";
+        statsSignificanceLine.textContent =
+          "Correction: " + correction + ". Significant markers (adjusted p < " + alpha + "): " +
+          Number(summary.significant_markers || 0) + " of " + Number(summary.markers_tested || 0) +
+          " (raw significant: " + Number(summary.raw_significant_markers || 0) + ").";
+
+        const analyses = (markerDistributions || [])
+          .filter((m) => Boolean(m.significant))
+          .map((m) => {
+            const name = m.grader_name || "Unknown";
+            const test = m.test_used || "Insufficient data";
+            const markerN = Number(m.count || 0);
+            const globalN = Number(m.comparison_count || 0);
+            const markerNorm = (m.marker_normality_p === null || m.marker_normality_p === undefined)
+              ? "n/a"
+              : Number(m.marker_normality_p).toFixed(4);
+            const globalNorm = (m.global_normality_p === null || m.global_normality_p === undefined)
+              ? "n/a"
+              : Number(m.global_normality_p).toFixed(4);
+            const pText = (m.p_value === null || m.p_value === undefined || Number.isNaN(Number(m.p_value)))
+              ? "n/a"
+              : (Number(m.p_value) < 0.001 ? "<0.001" : Number(m.p_value).toFixed(3));
+            const pAdjText = (m.p_value_adjusted === null || m.p_value_adjusted === undefined || Number.isNaN(Number(m.p_value_adjusted)))
+              ? "n/a"
+              : (Number(m.p_value_adjusted) < 0.001 ? "<0.001" : Number(m.p_value_adjusted).toFixed(3));
+            const sig = m.significant ? "yes" : "no";
+            return `${name}: ${test}; n=${markerN} vs global n=${globalN}; normality p(marker/global)=${markerNorm}/${globalNorm}; raw p=${pText}; adjusted p=${pAdjText}; significant=${sig}.`;
+          });
+
+        if (!analyses.length) {
+          const li = document.createElement("li");
+          li.textContent = "No markers have significant adjusted p-values.";
+          statsAnalysisList.appendChild(li);
+          return;
+        }
+
+        analyses.forEach((line) => {
+          const li = document.createElement("li");
+          li.textContent = line;
+          statsAnalysisList.appendChild(li);
+        });
+      }
+
+      function renderHistogram() {
+        if (!histogramEl || !window.d3 || !latestScoreValues.length) return;
+        histogramEl.innerHTML = "";
+        const d3 = window.d3;
+
+        const width = Math.max(520, histogramEl.clientWidth || 520);
+        const height = 140;
+        const margin = { top: 20, right: 20, bottom: 40, left: 48 };
+        const innerWidth = width - margin.left - margin.right;
+        const innerHeight = height - margin.top - margin.bottom;
+        const rawThreshold = Number(thresholdInput ? thresholdInput.value : 40);
+        const threshold = Number.isNaN(rawThreshold) ? 40 : rawThreshold;
+
+        const xDomain = latestIsPercentage
+          ? [0, 100]
+          : [Math.min(...latestScoreValues, 0), Math.max(...latestScoreValues, 1)];
+        const x = d3.scaleLinear().domain(xDomain).nice().range([0, innerWidth]);
+        const bins = d3.bin().domain(x.domain()).thresholds(16)(latestScoreValues);
+        const y = d3.scaleLinear().domain([0, d3.max(bins, (d) => d.length) || 1]).nice().range([innerHeight, 0]);
+
+        const svg = d3
+          .select(histogramEl)
+          .append("svg")
+          .attr("viewBox", `0 0 ${width} ${height}`)
+          .attr("width", "100%")
+          .attr("height", "100%");
+
+        const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+        g.append("g")
+          .attr("transform", `translate(0,${innerHeight})`)
+          .call(d3.axisBottom(x).ticks(10).tickFormat((d) => (latestIsPercentage ? d + "%" : d)))
+          .call((axis) => axis.selectAll("text").attr("fill", "#41557b").style("font-size", "11px"))
+          .call((axis) => axis.selectAll("line,path").attr("stroke", "#9fb0cf"));
+
+        g.append("g")
+          .call(d3.axisLeft(y).ticks(6))
+          .call((axis) => axis.selectAll("text").attr("fill", "#41557b").style("font-size", "11px"))
+          .call((axis) => axis.selectAll("line,path").attr("stroke", "#9fb0cf"));
+
+        g.append("g")
+          .attr("stroke", "#d7dfef")
+          .attr("stroke-opacity", 0.8)
+          .call(
+            d3
+              .axisLeft(y)
+              .ticks(6)
+              .tickSize(-innerWidth)
+              .tickFormat("")
+          )
+          .call((grid) => grid.select(".domain").remove());
+
+        const bars = g.selectAll("rect.bin")
+          .data(bins)
+          .enter()
+          .append("rect")
+          .attr("class", "bin")
+          .attr("x", (d) => x(d.x0) + 1)
+          .attr("y", (d) => y(d.length))
+          .attr("width", (d) => Math.max(0, x(d.x1) - x(d.x0) - 2))
+          .attr("height", (d) => innerHeight - y(d.length))
+          .attr("rx", 2)
+          .attr("opacity", 0.9);
+
+        const thresholdX = x(Math.max(x.domain()[0], Math.min(x.domain()[1], threshold)));
+        const thresholdLine = g.append("line")
+          .attr("x1", thresholdX)
+          .attr("x2", thresholdX)
+          .attr("y1", 0)
+          .attr("y2", innerHeight)
+          .attr("stroke", "#a52a2a")
+          .attr("stroke-width", 2)
+          .attr("stroke-dasharray", "6 4");
+
+        const thresholdLabel = g.append("text")
+          .attr("x", thresholdX + 6)
+          .attr("y", 12)
+          .attr("fill", "#7f1d1d")
+          .style("font-size", "9px")
+          .style("font-weight", 600)
+          .style("paint-order", "stroke")
+          .style("stroke", "#ffffff")
+          .style("stroke-width", "3px")
+          .text("Fail threshold");
+
+        const meanValue = d3.mean(latestScoreValues);
+        const medianValue = d3.median(latestScoreValues);
+
+        if (meanValue !== undefined && meanValue !== null) {
+          const meanX = x(Math.max(x.domain()[0], Math.min(x.domain()[1], meanValue)));
+          g.append("line")
+            .attr("x1", meanX)
+            .attr("x2", meanX)
+            .attr("y1", 0)
+            .attr("y2", innerHeight)
+            .attr("stroke", "#005ea5")
+            .attr("stroke-width", 2)
+            .attr("stroke-dasharray", "4 3");
+
+          g.append("text")
+            .attr("x", meanX + 6)
+            .attr("y", 28)
+            .attr("fill", "#0b4f9f")
+            .style("font-size", "9px")
+            .style("font-weight", 600)
+            .style("paint-order", "stroke")
+            .style("stroke", "#ffffff")
+            .style("stroke-width", "3px")
+            .text("Mean");
+        }
+
+        if (medianValue !== undefined && medianValue !== null) {
+          const medianX = x(Math.max(x.domain()[0], Math.min(x.domain()[1], medianValue)));
+          g.append("line")
+            .attr("x1", medianX)
+            .attr("x2", medianX)
+            .attr("y1", 0)
+            .attr("y2", innerHeight)
+            .attr("stroke", "#005ea5")
+            .attr("stroke-width", 2)
+            .attr("stroke-dasharray", "2 3");
+
+          g.append("text")
+            .attr("x", medianX + 6)
+            .attr("y", 44)
+            .attr("fill", "#1d3d7c")
+            .style("font-size", "9px")
+            .style("font-weight", 600)
+            .style("paint-order", "stroke")
+            .style("stroke", "#ffffff")
+            .style("stroke-width", "3px")
+            .text("Median");
+        }
+
+        histogramState.d3 = d3;
+        histogramState.x = x;
+        histogramState.bins = bins;
+        histogramState.bars = bars;
+        histogramState.thresholdLine = thresholdLine;
+        histogramState.thresholdLabel = thresholdLabel;
+        updateHistogramThreshold();
+      }
+
+      function updateHistogramThreshold() {
+        if (!histogramState.x || !histogramState.bars || !histogramState.thresholdLine || !histogramState.thresholdLabel) {
+          return;
+        }
+        const rawThreshold = Number(thresholdInput ? thresholdInput.value : 40);
+        const threshold = Number.isNaN(rawThreshold) ? 40 : rawThreshold;
+        const x = histogramState.x;
+        const bins = histogramState.bins;
+        const thresholdX = x(Math.max(x.domain()[0], Math.min(x.domain()[1], threshold)));
+
+        histogramState.bars.attr("fill", (d) => (d.x1 <= threshold ? "#d24343" : "#005ea5"));
+        histogramState.thresholdLine
+          .attr("x1", thresholdX)
+          .attr("x2", thresholdX);
+        histogramState.thresholdLabel.attr("x", thresholdX + 6);
+      }
+
+      function renderBoxplot() {
+        if (!boxplotEl || !window.d3) return;
+        boxplotEl.innerHTML = "";
+        if (!Array.isArray(markerDistributions) || !markerDistributions.length) return;
+
+        const d3 = window.d3;
+        const parsed = markerDistributions
+          .map((m) => {
+            const values = (m.values || []).map((v) => Number(v)).filter((v) => !Number.isNaN(v)).sort((a, b) => a - b);
+            const points = (m.points || [])
+              .map((p) => ({
+                submission_id: p.submission_id,
+                student_name: p.student_name || "",
+                submission_url: p.submission_url || "",
+                score: Number(p.score),
+              }))
+              .filter((p) => !Number.isNaN(p.score));
+            if (!values.length) return null;
+            return {
+              name: m.grader_name || "Unknown",
+              count: values.length,
+              values: values,
+              p_value: (m.p_value === null || m.p_value === undefined) ? null : Number(m.p_value),
+              p_value_adjusted: (m.p_value_adjusted === null || m.p_value_adjusted === undefined) ? null : Number(m.p_value_adjusted),
+              significant: Boolean(m.significant),
+              test_used: m.test_used || "",
+              points: points,
+              min: values[0],
+              q1: d3.quantileSorted(values, 0.25),
+              median: d3.quantileSorted(values, 0.5),
+              mean: d3.mean(values),
+              q3: d3.quantileSorted(values, 0.75),
+              max: values[values.length - 1],
+            };
+          })
+          .filter(Boolean);
+
+        const sortMode = boxplotSortSelect ? boxplotSortSelect.value : "name_asc";
+        if (sortMode === "median_asc") {
+          parsed.sort((a, b) => (a.median - b.median) || (a.name || "").localeCompare((b.name || ""), undefined, { sensitivity: "base" }));
+        } else if (sortMode === "median_desc") {
+          parsed.sort((a, b) => (b.median - a.median) || (a.name || "").localeCompare((b.name || ""), undefined, { sensitivity: "base" }));
+        } else if (sortMode === "mean_asc") {
+          parsed.sort((a, b) => (a.mean - b.mean) || (a.name || "").localeCompare((b.name || ""), undefined, { sensitivity: "base" }));
+        } else if (sortMode === "mean_desc") {
+          parsed.sort((a, b) => (b.mean - a.mean) || (a.name || "").localeCompare((b.name || ""), undefined, { sensitivity: "base" }));
+        } else {
+          parsed.sort((a, b) => (a.name || "").localeCompare((b.name || ""), undefined, { sensitivity: "base" }));
+        }
+
+        if (!parsed.length) return;
+
+        const rowHeight = 30;
+        const height = Math.max(220, parsed.length * rowHeight + 60);
+        const width = Math.max(720, boxplotEl.clientWidth || 720);
+        const margin = { top: 18, right: 170, bottom: 36, left: 200 };
+        const innerWidth = width - margin.left - margin.right;
+        const innerHeight = height - margin.top - margin.bottom;
+
+        const allValues = parsed.flatMap((d) => [d.min, d.max]);
+        const xDomain = latestIsPercentage
+          ? [0, 100]
+          : [Math.min(...allValues), Math.max(...allValues)];
+
+        const x = d3.scaleLinear().domain(xDomain).nice().range([0, innerWidth]);
+        const y = d3.scaleBand().domain(parsed.map((d) => d.name)).range([0, innerHeight]).padding(0.35);
+
+        const svg = d3
+          .select(boxplotEl)
+          .append("svg")
+          .attr("viewBox", `0 0 ${width} ${height}`)
+          .attr("width", "100%")
+          .attr("height", "100%");
+
+        const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+        g.append("g")
+          .attr("transform", `translate(0,${innerHeight})`)
+          .call(d3.axisBottom(x).ticks(10).tickFormat((d) => (latestIsPercentage ? d + "%" : d)))
+          .call((axis) => axis.selectAll("text").attr("fill", "#41557b").style("font-size", "11px"))
+          .call((axis) => axis.selectAll("line,path").attr("stroke", "#9fb0cf"));
+
+        g.append("g")
+          .call(d3.axisLeft(y))
+          .call((axis) => axis.selectAll("text").attr("fill", "#34496e").style("font-size", "11px"))
+          .call((axis) => axis.selectAll("line,path").attr("stroke", "#9fb0cf"));
+
+        const legend = g.append("g").attr("transform", "translate(0,-6)");
+        legend.append("line")
+          .attr("x1", 0)
+          .attr("x2", 16)
+          .attr("y1", 0)
+          .attr("y2", 0)
+          .attr("stroke", "#f59e0b")
+          .attr("stroke-width", 2.5);
+        legend.append("text")
+          .attr("x", 20)
+          .attr("y", 3)
+          .attr("fill", "#7a5a00")
+          .style("font-size", "10px")
+          .text("Median");
+        legend.append("circle")
+          .attr("cx", 82)
+          .attr("cy", 0)
+          .attr("r", 3)
+          .attr("fill", "#0f766e");
+        legend.append("text")
+          .attr("x", 92)
+          .attr("y", 3)
+          .attr("fill", "#0f766e")
+          .style("font-size", "10px")
+          .text("Mean");
+        legend.append("line")
+          .attr("x1", 140)
+          .attr("x2", 156)
+          .attr("y1", 0)
+          .attr("y2", 0)
+          .attr("stroke", "#1f4f99")
+          .attr("stroke-width", 2)
+          .attr("stroke-dasharray", "5 3");
+        legend.append("text")
+          .attr("x", 160)
+          .attr("y", 3)
+          .attr("fill", "#1f4f99")
+          .style("font-size", "10px")
+          .text("Global mean");
+        legend.append("line")
+          .attr("x1", 236)
+          .attr("x2", 252)
+          .attr("y1", 0)
+          .attr("y2", 0)
+          .attr("stroke", "#7a3e00")
+          .attr("stroke-width", 2)
+          .attr("stroke-dasharray", "2 3");
+        legend.append("text")
+          .attr("x", 256)
+          .attr("y", 3)
+          .attr("fill", "#7a3e00")
+          .style("font-size", "10px")
+          .text("Global median");
+
+        const globalMean = d3.mean(latestScoreValues);
+        const globalMedian = d3.median(latestScoreValues);
+        if (globalMean !== undefined && globalMean !== null && !Number.isNaN(globalMean)) {
+          const globalMeanX = x(Math.max(x.domain()[0], Math.min(x.domain()[1], globalMean)));
+          g.append("line")
+            .attr("x1", globalMeanX)
+            .attr("x2", globalMeanX)
+            .attr("y1", 0)
+            .attr("y2", innerHeight)
+            .attr("stroke", "#1f4f99")
+            .attr("stroke-width", 1.8)
+            .attr("stroke-dasharray", "5 3")
+            .attr("opacity", 0.9);
+        }
+        if (globalMedian !== undefined && globalMedian !== null && !Number.isNaN(globalMedian)) {
+          const globalMedianX = x(Math.max(x.domain()[0], Math.min(x.domain()[1], globalMedian)));
+          g.append("line")
+            .attr("x1", globalMedianX)
+            .attr("x2", globalMedianX)
+            .attr("y1", 0)
+            .attr("y2", innerHeight)
+            .attr("stroke", "#7a3e00")
+            .attr("stroke-width", 1.8)
+            .attr("stroke-dasharray", "2 3")
+            .attr("opacity", 0.9);
+        }
+
+        const row = g.selectAll("g.boxrow")
+          .data(parsed)
+          .enter()
+          .append("g")
+          .attr("class", "boxrow")
+          .attr("transform", (d) => `translate(0,${y(d.name)})`);
+
+        row.append("line")
+          .attr("x1", (d) => x(d.min))
+          .attr("x2", (d) => x(d.max))
+          .attr("y1", y.bandwidth() / 2)
+          .attr("y2", y.bandwidth() / 2)
+          .attr("stroke", "#6d7fa6")
+          .attr("stroke-width", 2);
+
+        row.append("rect")
+          .attr("x", (d) => x(d.q1))
+          .attr("width", (d) => Math.max(1, x(d.q3) - x(d.q1)))
+          .attr("y", 2)
+          .attr("height", Math.max(8, y.bandwidth() - 4))
+          .attr("fill", "#005ea5")
+          .attr("opacity", 0.85)
+          .attr("rx", 3);
+
+        row.append("line")
+          .attr("x1", (d) => x(d.median))
+          .attr("x2", (d) => x(d.median))
+          .attr("y1", 2)
+          .attr("y2", Math.max(8, y.bandwidth() - 2))
+          .attr("stroke", "#f59e0b")
+          .attr("stroke-width", 2.5);
+
+        row.append("circle")
+          .attr("cx", (d) => x(d.mean))
+          .attr("cy", y.bandwidth() / 2)
+          .attr("r", 3.2)
+          .attr("fill", "#0f766e")
+          .attr("stroke", "#ffffff")
+          .attr("stroke-width", 0.8);
+
+        row.append("line")
+          .attr("x1", (d) => x(d.min))
+          .attr("x2", (d) => x(d.min))
+          .attr("y1", 6)
+          .attr("y2", Math.max(6, y.bandwidth() - 6))
+          .attr("stroke", "#6d7fa6")
+          .attr("stroke-width", 2);
+
+        row.append("line")
+          .attr("x1", (d) => x(d.max))
+          .attr("x2", (d) => x(d.max))
+          .attr("y1", 6)
+          .attr("y2", Math.max(6, y.bandwidth() - 6))
+          .attr("stroke", "#6d7fa6")
+          .attr("stroke-width", 2);
+
+        row.append("text")
+          .attr("x", innerWidth + 8)
+          .attr("y", y.bandwidth() / 2 + 4)
+          .attr("fill", (d) => (d.significant ? "#8a1c1c" : "#445a80"))
+          .style("font-size", "10px")
+          .style("font-weight", (d) => (d.significant ? 700 : 500))
+          .text((d) => {
+            if (d.p_value_adjusted === null || Number.isNaN(d.p_value_adjusted)) return "p(adj): n/a";
+            const pAdj = Number(d.p_value_adjusted);
+            const pAdjText = pAdj < 0.001 ? "<0.001" : pAdj.toFixed(3);
+            if (d.p_value === null || Number.isNaN(d.p_value)) return "p(adj)=" + pAdjText + (d.significant ? " *" : "");
+            const p = Number(d.p_value);
+            const pText = p < 0.001 ? "<0.001" : p.toFixed(3);
+            return "p(adj)=" + pAdjText + " | p=" + pText + (d.significant ? " *" : "");
+          });
+
+        const jitter = Math.max(4, y.bandwidth() * 0.25);
+        row.each(function (d) {
+          const rowGroup = d3.select(this);
+          const points = d.points || [];
+          rowGroup
+            .selectAll("circle.score-point")
+            .data(points)
+            .enter()
+            .append("circle")
+            .attr("class", "score-point")
+            .attr("cx", (p) => x(p.score))
+            .attr("cy", () => y.bandwidth() / 2 + (Math.random() * 2 - 1) * jitter)
+            .attr("r", 2.5)
+            .attr("fill", "#005ea5")
+            .attr("fill-opacity", 0.55)
+            .attr("stroke", "#ffffff")
+            .attr("stroke-width", 0.6)
+            .on("mouseenter", function (event, p) {
+              if (!boxplotTooltip) return;
+              if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+              const scoreText = fmt(p.score) + (latestIsPercentage ? "%" : "");
+              boxplotTooltip.innerHTML =
+                "<div><strong>" + escapeHtml(p.student_name || "Unknown student") + "</strong></div>" +
+                "<div>Score: " + escapeHtml(scoreText) + "</div>" +
+                (p.submission_url
+                  ? "<div><a href=\"" + escapeHtml(p.submission_url) + "\" target=\"_blank\" rel=\"noopener\">Open submission</a></div>"
+                  : "");
+              boxplotTooltip.classList.remove("is-hidden");
+            })
+            .on("mousemove", function (event) {
+              if (!boxplotTooltip) return;
+              const offset = 14;
+              boxplotTooltip.style.left = (event.clientX + offset) + "px";
+              boxplotTooltip.style.top = (event.clientY + offset) + "px";
+            })
+            .on("mouseleave", function () {
+              if (!boxplotTooltip) return;
+              hideTooltipSoon();
+            });
+        });
+      }
+
+      function updateFailCount() {
+        if (!failCountTitle || !failCountValue || !thresholdInput) return;
+        if (!latestScoreValues.length) {
+          failCountTitle.textContent = "Fail count";
+          failCountValue.textContent = "0";
+          if (histogramEl) histogramEl.innerHTML = "";
+          histogramState.d3 = null;
+          histogramState.x = null;
+          histogramState.bins = [];
+          histogramState.bars = null;
+          histogramState.thresholdLine = null;
+          histogramState.thresholdLabel = null;
+          return;
+        }
+        const rawThreshold = Number(thresholdInput.value);
+        const threshold = Number.isNaN(rawThreshold) ? 40 : rawThreshold;
+        const failCount = latestScoreValues.filter((v) => v < threshold).length;
+        const suffix = latestIsPercentage ? "%" : "";
+        failCountTitle.textContent = "Fail count (< " + threshold + suffix + ")";
+        failCountValue.textContent = String(failCount);
+        updateHistogramThreshold();
+      }
+
+      async function poll() {
+        if (pollTimer) {
+          clearTimeout(pollTimer);
+          pollTimer = null;
+        }
+        try {
+          const resp = await fetch("/canvas/assignments/moderate/" + reportId + "/progress/", {
+            credentials: "same-origin",
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const pct = Math.max(0, Math.min(100, Number(data.percent || 0)));
+          const extractionPct = Math.max(0, Math.min(100, Number(data.extraction_percent || 0)));
+          const processingPct = Math.max(0, Math.min(100, Number(data.processing_percent || 0)));
+          extractionFill.style.width = extractionPct + "%";
+          processingFill.style.width = processingPct + "%";
+          statusLine.textContent = "Status: " + (data.status || "pending") + " • Phase: " + (data.phase || "extracting") + " • " + pct + "%";
+          extractionLine.textContent = "Extracting data from Canvas: " + extractionPct + "% (" + (data.extraction_processed || 0) + "/" + (data.extraction_total || 0) + ")";
+          processingLine.textContent = "Processing: " + processingPct + "%";
+
+          if (data.status === "failed") {
+            progressCard.classList.add("is-hidden");
+            errorCard.classList.remove("is-hidden");
+            errorText.textContent = data.error || "Moderation failed.";
+            return;
+          }
+
+          if (data.status === "completed") {
+            progressCard.classList.add("is-hidden");
+            if (data.stats && Number(data.stats.count || 0) > 0) {
+              renderStats(data.stats);
+              statsCard.classList.remove("is-hidden");
+            } else {
+              emptyCard.classList.remove("is-hidden");
+            }
+            return;
+          }
+
+          pollTimer = setTimeout(poll, 300);
+        } catch (err) {
+          pollTimer = setTimeout(poll, 800);
+        }
+      }
+
+      poll();
+
+      if (thresholdInput) {
+        thresholdInput.addEventListener("change", function () {
+          updateFailCount();
+          renderClassificationZones();
+          if (failThresholdSaveTimer) clearTimeout(failThresholdSaveTimer);
+          failThresholdSaveTimer = setTimeout(saveFailThreshold, 200);
+        });
+      }
+
+      if (boxplotSortSelect) {
+        boxplotSortSelect.addEventListener("change", renderBoxplot);
+      }
+      if (boxplotTooltip) {
+        boxplotTooltip.addEventListener("mouseenter", function () {
+          if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+        });
+        boxplotTooltip.addEventListener("mouseleave", function () {
+          boxplotTooltip.classList.add("is-hidden");
+        });
+      }
+      if (printReportBtn) {
+        printReportBtn.addEventListener("click", function () {
+          window.print();
+        });
+      }
+      window.addEventListener("resize", function () {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () {
+          if (latestScoreValues.length) {
+            renderHistogram();
+            renderBoxplot();
+          }
+        }, 150);
+      });
+    })();
+  </script>
+</body>
+</html>
