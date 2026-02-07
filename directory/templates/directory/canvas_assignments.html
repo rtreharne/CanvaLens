@@ -1,0 +1,488 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas Lens</title>
+  <link rel="stylesheet" href="https://www.liverpool.ac.uk/rb/latest/assets/redbrick.css" />
+  <style>
+    .rb-page { background: #f5f6fa; }
+    .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
+    .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
+    .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .rb-title-block .rb-lockup + .rb-lockup { margin-top: -2px; }
+    .sync-progress-wrap { width: 100%; max-width: 720px; }
+    .sync-progress-track { width: 100%; height: 12px; background: #d9dee8; border-radius: 999px; overflow: hidden; }
+    .sync-progress-fill { height: 100%; width: 0%; background: #005ea5; transition: width 0.25s ease; }
+    .is-hidden { display: none !important; }
+    .filters-grid {
+      display: grid;
+      gap: 10px 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: start;
+      margin-bottom: 6px;
+    }
+    .filter-field {
+      margin: 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .filter-field label {
+      margin: 0;
+      line-height: 1.2;
+      font-size: 0.98rem;
+    }
+    .filter-field select,
+    .filter-field input[type="text"],
+    .filter-field input[type="datetime-local"] {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      margin: 0;
+    }
+    .filters-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .table-wrap { width: 100%; overflow-x: auto; }
+    .table-wrap .rb-table { min-width: 960px; }
+    .reports-table .rb-table { min-width: 760px; }
+    @media (max-width: 1100px) {
+      .filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 900px) { .rb-title-block { min-height: 72px; } }
+    @media (max-width: 640px) {
+      .filters-grid { grid-template-columns: 1fr; }
+      .table-wrap .rb-table { min-width: 760px; }
+    }
+  </style>
+</head>
+<body class="rb-page">
+  <header class="rb-header">
+    <div class="rb-header__global rb-header__container">
+      <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
+        <span class="sr-only">Home</span>
+      </a>
+      <div style="margin-left:auto;"></div>
+    </div>
+    <div class="rb-header__section">
+      <div class="rb-block-container">
+        <img class="rb-header__logo" src="{% static 'uol_logo_reversed.png' %}" alt="University of Liverpool" />
+      </div>
+    </div>
+  </header>
+
+  <section class="rb-block-cover bg-rb--color--blue text-white">
+    <div class="rb-block-container">
+      <div class="rb-title-block">
+        <h2 class="rb-lockup">Canvas Lens</h2>
+      </div>
+    </div>
+  </section>
+
+  <section class="rb-block-cover">
+    <div class="rb-block-container">
+      <div class="rb-buttongroup" style="margin-bottom: 12px;">
+        <a href="/admin-dashboard/" class="rb-button rb-button--ghost">Admin Dashboard</a>
+        <form method="post" action="/canvas/sync/" style="display:inline;">
+          {% csrf_token %}
+          <button class="rb-button rb-button--primary" type="submit" name="sync_mode" value="all">Sync All</button>
+          <button class="rb-button rb-button--ghost" type="submit" name="sync_mode" value="existing">Sync Existing</button>
+        </form>
+      </div>
+
+      <div class="rb-card sync-progress-wrap">
+        <div class="rb-card__inner">
+          <p>Last sync: {{ credential.last_sync_at|default:"Never" }}</p>
+        </div>
+      </div>
+
+      <div id="sync-progress-wrap" class="rb-card sync-progress-wrap {% if credential.sync_status != 'queued' and credential.sync_status != 'running' %}is-hidden{% endif %}">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Sync Progress</h3>
+          <p id="sync-status-line">Status: {{ credential.sync_status|default:"never" }}</p>
+          <p id="sync-course-line"></p>
+          <div class="sync-progress-track" aria-label="Canvas sync progress">
+            <div id="sync-progress-fill" class="sync-progress-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      {% if credential and credential.last_error %}
+        <div class="rb-card">
+          <div class="rb-card__inner text-rb--color--error">
+            Last sync error: {{ credential.last_error }}
+          </div>
+        </div>
+      {% endif %}
+
+      <div id="reports-table-container">
+        {% include "directory/_canvas_reports_table.html" with reports=reports %}
+      </div>
+
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <form id="filters-form" method="get" action="/canvas/assignments/">
+            <div class="filters-grid">
+              <div class="rb-fieldgroup filter-field">
+              <label for="course">Course</label>
+              <select id="course" name="course">
+                <option value="">All courses</option>
+                {% for course in courses %}
+                  <option value="{{ course.id }}" {% if selected.course == course.id|stringformat:"s" %}selected{% endif %}>{{ course.name }}</option>
+                {% endfor %}
+              </select>
+              </div>
+              <div class="rb-fieldgroup filter-field">
+              <label for="course_name">Course name</label>
+              <input id="course_name" name="course_name" type="text" value="{{ selected.course_name }}" />
+              </div>
+              <div class="rb-fieldgroup filter-field">
+              <label for="assignment_type">Assignment type</label>
+              <select id="assignment_type" name="assignment_type">
+                <option value="">All types</option>
+                {% for t in assignment_types %}
+                  <option value="{{ t }}" {% if selected.assignment_type == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+              </select>
+              </div>
+              <div class="rb-fieldgroup filter-field">
+              <label for="enrolled">Enrollment</label>
+              <select id="enrolled" name="enrolled">
+                <option value="all" {% if selected.enrolled == "all" %}selected{% endif %}>All courses</option>
+                <option value="enrolled" {% if selected.enrolled == "enrolled" %}selected{% endif %}>Enrolled only</option>
+                <option value="not_enrolled" {% if selected.enrolled == "not_enrolled" %}selected{% endif %}>Not enrolled</option>
+              </select>
+              </div>
+              <div class="rb-fieldgroup filter-field">
+              <label for="assignment_name">Assignment name</label>
+              <input id="assignment_name" name="assignment_name" type="text" value="{{ selected.assignment_name }}" />
+              </div>
+              <div class="rb-fieldgroup filter-field">
+              <label for="date_from">Date from</label>
+              <input id="date_from" name="date_from" type="date" value="{{ selected.date_from }}" />
+              </div>
+              <div class="rb-fieldgroup filter-field">
+              <label for="date_to">Date to</label>
+              <input id="date_to" name="date_to" type="date" value="{{ selected.date_to }}" />
+              </div>
+            </div>
+            <div class="filters-actions">
+              <button class="rb-button rb-button--primary" type="submit">Apply filters</button>
+              <a id="clear-filters-btn" class="rb-button rb-button--ghost {% if not has_active_filters %}is-hidden{% endif %}" href="/canvas/assignments/">Clear filters</a>
+              <button id="create-report-btn" class="rb-button rb-button--secondary" type="button">Create Submissions Report</button>
+            </div>
+          </form>
+          <form id="create-report-form" method="post" action="/canvas/reports/create/" class="is-hidden">
+            {% csrf_token %}
+            <input type="hidden" name="course" />
+            <input type="hidden" name="course_name" />
+            <input type="hidden" name="assignment_type" />
+            <input type="hidden" name="enrolled" />
+            <input type="hidden" name="assignment_name" />
+            <input type="hidden" name="date_from" />
+            <input type="hidden" name="date_to" />
+          </form>
+        </div>
+      </div>
+
+      <div id="report-progress-wrap" class="rb-card sync-progress-wrap {% if not active_report %}is-hidden{% endif %}">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Submissions Report Progress</h3>
+          <p id="report-status-line">
+            {% if active_report %}
+              Report #{{ active_report.id }} — {{ active_report.status }} ({{ active_report.processed_assignments }}/{{ active_report.total_assignments }})
+            {% endif %}
+          </p>
+          <p id="report-assignment-line">
+            {% if active_report and active_report.current_assignment_name %}
+              Processing: {{ active_report.current_assignment_name }}
+            {% endif %}
+          </p>
+          <div class="sync-progress-track" aria-label="Report progress">
+            <div id="report-progress-fill" class="sync-progress-fill" style="width:{% if active_report and active_report.total_assignments %}{% widthratio active_report.processed_assignments active_report.total_assignments 100 %}{% else %}0{% endif %}%"></div>
+          </div>
+          {% if active_report %}
+            <form id="cancel-report-form" method="post" action="/canvas/reports/{{ active_report.id }}/cancel/" style="margin-top:10px;">
+              {% csrf_token %}
+              <button class="rb-button rb-button--ghost" type="submit">Cancel Report</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <div id="assignments-table-container">
+            {% include "directory/_canvas_assignments_table.html" with assignments=assignments %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <script>
+    (function () {
+      const progressWrap = document.getElementById("sync-progress-wrap");
+      const fill = document.getElementById("sync-progress-fill");
+      const statusLine = document.getElementById("sync-status-line");
+      const courseLine = document.getElementById("sync-course-line");
+      if (!progressWrap || !fill || !statusLine || !courseLine) return;
+      let pollTimer = null;
+
+      function render(data) {
+        const pct = Math.max(0, Math.min(100, Number(data.percent || 0)));
+        fill.style.width = pct + "%";
+        statusLine.textContent = "Status: " + (data.status || "never") + " (" + (data.processed_courses || 0) + "/" + (data.total_courses || 0) + ")";
+        if (data.current_course_name) {
+          courseLine.textContent = "Scanning: " + data.current_course_name;
+        } else if (data.last_error) {
+          courseLine.textContent = "Error: " + data.last_error;
+        } else {
+          courseLine.textContent = "";
+        }
+        const inProgress = data.status === "queued" || data.status === "running";
+        progressWrap.classList.toggle("is-hidden", !inProgress);
+        return inProgress;
+      }
+
+      async function poll() {
+        if (pollTimer) {
+          clearTimeout(pollTimer);
+          pollTimer = null;
+        }
+        try {
+          const resp = await fetch("/canvas/sync/progress/", { credentials: "same-origin" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const shouldContinue = render(data);
+          if (shouldContinue) {
+            pollTimer = setTimeout(poll, 2500);
+          }
+        } catch (err) {
+          return;
+        }
+      }
+
+      poll();
+    })();
+
+    (function () {
+      const reportsTableContainer = document.getElementById("reports-table-container");
+      if (!reportsTableContainer) return;
+      window.refreshReportsTable = async function () {
+        try {
+          const resp = await fetch("/canvas/reports/table/", { credentials: "same-origin" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          reportsTableContainer.innerHTML = data.table_html || "";
+        } catch (err) {
+          return;
+        }
+      };
+    })();
+
+    (function () {
+      const createBtn = document.getElementById("create-report-btn");
+      const createForm = document.getElementById("create-report-form");
+      const filtersForm = document.getElementById("filters-form");
+      if (!createBtn || !createForm || !filtersForm) return;
+
+      createBtn.addEventListener("click", async function () {
+        if (createBtn.disabled) return;
+        createBtn.disabled = true;
+        const originalLabel = createBtn.textContent;
+        createBtn.textContent = "Queueing...";
+        const filterData = new FormData(filtersForm);
+        const payload = new URLSearchParams();
+        createForm.querySelectorAll("input[name]").forEach((input) => {
+          if (input.name === "csrfmiddlewaretoken") return;
+          payload.set(input.name, filterData.get(input.name) || "");
+        });
+        const csrf = createForm.querySelector("input[name='csrfmiddlewaretoken']");
+
+        try {
+          const resp = await fetch(createForm.action, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+              "X-Requested-With": "XMLHttpRequest",
+              "X-CSRFToken": csrf ? csrf.value : "",
+            },
+            body: payload.toString(),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            alert(data.error || "Could not queue report.");
+            return;
+          }
+          if (window.refreshReportsTable) {
+            await window.refreshReportsTable();
+          }
+          if (window.startReportProgressPolling) {
+            window.startReportProgressPolling(data.report || null);
+          }
+        } catch (err) {
+          alert("Could not queue report.");
+        } finally {
+          createBtn.disabled = false;
+          createBtn.textContent = originalLabel;
+        }
+      });
+    })();
+
+    (function () {
+      const reportWrap = document.getElementById("report-progress-wrap");
+      const statusLine = document.getElementById("report-status-line");
+      const assignmentLine = document.getElementById("report-assignment-line");
+      const fill = document.getElementById("report-progress-fill");
+      if (!reportWrap || !statusLine || !assignmentLine || !fill) return;
+      let pollTimer = null;
+
+      function render(data) {
+        reportWrap.classList.remove("is-hidden");
+        fill.style.width = Math.max(0, Math.min(100, Number(data.percent || 0))) + "%";
+        statusLine.textContent = "Report #" + data.id + " — " + data.status + " (" + (data.processed_assignments || 0) + "/" + (data.total_assignments || 0) + ")";
+        assignmentLine.textContent = data.current_assignment_name ? ("Processing: " + data.current_assignment_name) : "";
+      }
+
+      async function poll() {
+        if (pollTimer) {
+          clearTimeout(pollTimer);
+          pollTimer = null;
+        }
+        try {
+          const resp = await fetch("/canvas/reports/progress/", { credentials: "same-origin" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (!data.active) {
+            reportWrap.classList.add("is-hidden");
+            if (window.refreshReportsTable) {
+              await window.refreshReportsTable();
+            }
+            return;
+          }
+          render(data);
+          pollTimer = setTimeout(poll, 2500);
+        } catch (err) {
+          return;
+        }
+      }
+
+      window.startReportProgressPolling = function (seedData) {
+        if (seedData && seedData.id) {
+          render(seedData);
+        } else {
+          reportWrap.classList.remove("is-hidden");
+        }
+        poll();
+      };
+
+      if (!reportWrap.classList.contains("is-hidden")) {
+        window.startReportProgressPolling();
+      }
+    })();
+
+    (function () {
+      const form = document.getElementById("filters-form");
+      const tableContainer = document.getElementById("assignments-table-container");
+      const clearButton = document.getElementById("clear-filters-btn");
+      if (!form) return;
+
+      function setClearButtonVisible(visible) {
+        if (!clearButton) return;
+        clearButton.classList.toggle("is-hidden", !visible);
+      }
+
+      function isDefaultValue(name, value) {
+        if (name === "enrolled") return value === "all";
+        return !value;
+      }
+
+      function hasActiveFilters(formData) {
+        for (const [name, value] of formData.entries()) {
+          if (!isDefaultValue(name, value)) return true;
+        }
+        return false;
+      }
+
+      function serializeForm() {
+        const params = new URLSearchParams();
+        const formData = new FormData(form);
+        for (const [name, value] of formData.entries()) {
+          if (!isDefaultValue(name, value)) {
+            params.set(name, value);
+          }
+        }
+        return { params, formData };
+      }
+
+      async function applyFilters(pushUrl) {
+        if (!tableContainer) return;
+        const { params, formData } = serializeForm();
+        const query = params.toString();
+        const url = query ? "/canvas/assignments/data/?" + query : "/canvas/assignments/data/";
+        try {
+          const resp = await fetch(url, { credentials: "same-origin" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          tableContainer.innerHTML = data.table_html || "";
+          setClearButtonVisible(Boolean(data.has_active_filters));
+          if (pushUrl) {
+            const newPath = query ? "/canvas/assignments/?" + query : "/canvas/assignments/";
+            window.history.replaceState({}, "", newPath);
+          }
+        } catch (err) {
+          return;
+        }
+        setClearButtonVisible(hasActiveFilters(formData));
+      }
+
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        applyFilters(true);
+      });
+
+      const autoFields = form.querySelectorAll("select, input[type='date']");
+      autoFields.forEach((el) => {
+        el.addEventListener("change", function () {
+          applyFilters(true);
+        });
+      });
+
+      const textInputs = form.querySelectorAll("input[type='text']");
+      textInputs.forEach((textInput) => {
+        let timer = null;
+        textInput.addEventListener("input", function () {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(function () {
+            applyFilters(true);
+          }, 450);
+        });
+      });
+
+      if (clearButton) {
+        clearButton.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          form.querySelectorAll("input[type='text'], input[type='date']").forEach((el) => {
+            el.value = "";
+          });
+          form.querySelectorAll("select").forEach((el) => {
+            if (el.name === "enrolled") {
+              el.value = "all";
+            } else {
+              el.value = "";
+            }
+          });
+          applyFilters(true);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

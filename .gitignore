@@ -1,0 +1,30 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# Django
+*.sqlite3
+*.log
+staticfiles/
+media/
+
+# Celery / Redis
+celerybeat-schedule
+celerybeat.pid
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/

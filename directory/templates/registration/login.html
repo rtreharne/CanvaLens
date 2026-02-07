@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Staff Login — University of Liverpool</title>
+  <link rel="stylesheet" href="https://www.liverpool.ac.uk/rb/latest/assets/redbrick.css" />
+  <style>
+    .rb-page { background: #f5f6fa; }
+    .rb-login { max-width: 520px; margin: 60px auto; }
+    .rb-header__section .rb-block-container { display: flex; align-items: center; min-height: 64px; }
+    @media (max-width: 768px) { .rb-login { margin: 30px auto; } }
+  </style>
+</head>
+<body class="rb-page">
+  <header class="rb-header">
+    <div class="rb-header__global rb-header__container">
+      <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
+        <span class="sr-only">Home</span>
+      </a>
+    </div>
+    <div class="rb-header__section">
+      <div class="rb-block-container">
+        <h1 class="rb-header__title"><a href="/">University of Liverpool — Staff Search</a></h1>
+      </div>
+    </div>
+  </header>
+
+  <section class="rb-block-cover">
+    <div class="rb-block-container rb-login">
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <h2 class="rb-card__title">Staff Login</h2>
+          <form method="post">
+            {% csrf_token %}
+            <div class="rb-formgroup">
+              <label class="rb-formgroup__label" for="id_username">Username</label>
+              <input class="rb-input" type="text" name="username" id="id_username" required />
+            </div>
+            <div class="rb-formgroup">
+              <label class="rb-formgroup__label" for="id_password">Password</label>
+              <input class="rb-input" type="password" name="password" id="id_password" required />
+            </div>
+            <div class="rb-buttongroup">
+              <button class="rb-button rb-button--primary" type="submit">Sign in</button>
+              <a class="rb-button rb-button--ghost" href="/">Back to search</a>
+            </div>
+          </form>
+          {% if form.errors %}
+            <div class="text-rb--color--grey">Invalid credentials.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

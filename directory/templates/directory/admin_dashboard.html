@@ -1,0 +1,111 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas Lens Admin</title>
+  <link rel="stylesheet" href="https://www.liverpool.ac.uk/rb/latest/assets/redbrick.css" />
+  <style>
+    .rb-page { background: #f5f6fa; }
+    .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
+    .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
+    .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .rb-title-block .rb-lockup + .rb-lockup { margin-top: -2px; }
+    @media (max-width: 900px) { .rb-title-block { min-height: 72px; } }
+  </style>
+</head>
+<body class="rb-page">
+  <header class="rb-header">
+    <div class="rb-header__global rb-header__container">
+      <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
+        <span class="sr-only">Home</span>
+      </a>
+      <div style="margin-left:auto;"></div>
+    </div>
+    <div class="rb-header__section">
+      <div class="rb-block-container">
+        <img class="rb-header__logo" src="{% static 'uol_logo_reversed.png' %}" alt="University of Liverpool" />
+      </div>
+    </div>
+  </header>
+
+  <section class="rb-block-cover bg-rb--color--blue text-white">
+    <div class="rb-block-container">
+      <div class="rb-title-block">
+        <h2 class="rb-lockup">Canvas Lens Admin</h2>
+      </div>
+    </div>
+  </section>
+
+  <section class="rb-block-cover">
+    <div class="rb-block-container">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="rb-card">
+            <div class="rb-card__inner {% if message.tags == 'error' %}text-rb--color--error{% elif message.tags == 'success' %}text-rb--color--success{% endif %}">
+              {{ message }}
+            </div>
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Your Canvas Status</h3>
+          <p>Token validated: {{ credential.token_last_validated_at|default:"Never" }}</p>
+          <p>Last sync: {{ credential.last_sync_at|default:"Never" }}</p>
+          <p>Sync status: {{ credential.sync_status|default:"never" }}</p>
+          <p>Active courses: {{ courses_count }}</p>
+          <p>Published assignments: {{ assignments_count }}</p>
+          {% if credential and credential.last_error %}
+            <p class="text-rb--color--error">Last error: {{ credential.last_error }}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title">Canvas Settings</h3>
+          <p>Canvas URL: <strong>{{ canvas_url }}</strong></p>
+          <form method="post" action="/canvas/sync-source/save/" style="margin-bottom: 16px;">
+            {% csrf_token %}
+            <label for="sync_source">Sync Source</label>
+            <select id="sync_source" name="sync_source">
+              <option value="enrolled" {% if credential.sync_source != "admin_account" %}selected{% endif %}>Enrolled courses</option>
+              <option value="admin_account" {% if credential.sync_source == "admin_account" %}selected{% endif %}>Specific admin account</option>
+            </select>
+            <label for="admin_account_id" style="margin-top: 10px;">Admin Account</label>
+            <select id="admin_account_id" name="admin_account_id">
+              <option value="">Choose account</option>
+              {% for account in manageable_accounts %}
+                <option value="{{ account.id }}" {% if credential.admin_account_id == account.id %}selected{% endif %}>
+                  {{ account.name }} ({{ account.id }})
+                </option>
+              {% endfor %}
+            </select>
+            {% if accounts_error %}
+              <p class="text-rb--color--error" style="margin-top:8px;">Could not load manageable accounts: {{ accounts_error }}</p>
+            {% endif %}
+            <button class="rb-button rb-button--ghost" type="submit" style="margin-top: 12px;">Save Sync Source</button>
+          </form>
+          <form method="post" action="/canvas/settings/save/">
+            {% csrf_token %}
+            <label for="token">API Token</label>
+            <input id="token" name="token" type="password" required class="rb-input" />
+            <button class="rb-button rb-button--primary" type="submit" style="margin-top: 12px;">Save and Validate</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="rb-buttongroup">
+        <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Canvas Lens</a>
+        <form method="post" action="/canvas/burn-everything/" style="display:inline;" onsubmit="return confirm('Delete all courses and assignments? This cannot be undone.');">
+          {% csrf_token %}
+          <button class="rb-button rb-button--secondary" type="submit">Burn Everything</button>
+        </form>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
