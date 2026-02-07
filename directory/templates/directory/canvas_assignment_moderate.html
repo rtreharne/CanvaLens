@@ -12,6 +12,7 @@
     .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
     .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
     .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .rb-title-block .rb-lockup { font-size: 300%; }
     .sync-progress-track { width: 100%; height: 12px; background: #d9dee8; border-radius: 999px; overflow: hidden; }
     .sync-progress-fill { height: 100%; width: 0%; background: #005ea5; transition: width 0.25s ease; }
     .progress-stage { margin-top: 10px; }
@@ -264,17 +265,70 @@
       text-decoration: underline;
       color: #0a4684;
     }
+    .moderation-quicknav-open {
+      display: none;
+    }
+    .moderation-quicknav-close {
+      display: none;
+    }
     @media (max-width: 1300px) {
-      .moderation-quicknav {
-        position: sticky;
-        top: 10px;
-        right: auto;
-        width: auto;
-        margin: 8px 0 12px 0;
-      }
       .back-to-top-btn {
         right: 14px;
         bottom: 14px;
+      }
+      .moderation-quicknav-open {
+        display: inline-flex;
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 2200;
+        width: 42px;
+        height: 42px;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        font-size: 1.25rem;
+        line-height: 1;
+      }
+      .moderation-quicknav {
+        display: none;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100dvh;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: rgba(15, 25, 40, 0.98);
+        z-index: 2100;
+        padding: 24px 20px 100px 20px;
+      }
+      .moderation-quicknav.is-open {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-evenly;
+        gap: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .moderation-quicknav-title {
+        display: none;
+      }
+      .moderation-quicknav a {
+        color: #ffffff;
+        font-size: clamp(1rem, 3.8vw, 1.25rem);
+        text-align: center;
+        padding: 6px 0;
+        width: 100%;
+      }
+      .moderation-quicknav a:hover {
+        color: #cfe0ff;
+      }
+      .moderation-quicknav-close {
+        display: inline-flex;
       }
     }
     @media print {
@@ -336,7 +390,9 @@
     <a href="#moderation-outstanding-section">Outstanding marking</a>
     <a href="#moderation-methods-section">Statistical methods</a>
     <a href="#moderation-checked-section">Checked submissions</a>
+    <button id="moderation-quicknav-close" class="rb-button rb-button--ghost moderation-quicknav-close" type="button">Close</button>
   </nav>
+  <button id="moderation-quicknav-open" type="button" class="rb-button rb-button--primary moderation-quicknav-open" aria-label="Open page navigation">&#9776;</button>
 
   <header class="rb-header">
     <div class="rb-header__global rb-header__container">
@@ -356,7 +412,6 @@
     <div class="rb-block-container">
       <div class="rb-title-block">
         <h2 class="rb-lockup">Canvas Lens</h2>
-        <p style="margin:6px 0 0 0;">Assignment moderation summary</p>
       </div>
     </div>
   </section>
@@ -612,6 +667,41 @@
       });
       window.addEventListener("scroll", updateVisibility, { passive: true });
       updateVisibility();
+    })();
+
+    (function () {
+      const quickNav = document.getElementById("moderation-quicknav");
+      const openBtn = document.getElementById("moderation-quicknav-open");
+      const closeBtn = document.getElementById("moderation-quicknav-close");
+      if (!quickNav || !openBtn || !closeBtn) return;
+
+      function isMobile() {
+        return window.matchMedia("(max-width: 1300px)").matches;
+      }
+
+      function closeQuickNav() {
+        quickNav.classList.remove("is-open");
+        document.body.style.overflow = "";
+      }
+
+      function openQuickNav() {
+        if (!isMobile()) return;
+        quickNav.classList.add("is-open");
+        document.body.style.overflow = "hidden";
+      }
+
+      openBtn.addEventListener("click", openQuickNav);
+      closeBtn.addEventListener("click", closeQuickNav);
+      quickNav.addEventListener("click", function (ev) {
+        if (ev.target.tagName === "A") {
+          closeQuickNav();
+        }
+      });
+      window.addEventListener("resize", function () {
+        if (!isMobile()) {
+          closeQuickNav();
+        }
+      });
     })();
 
     (function () {
@@ -1597,5 +1687,6 @@
       });
     })();
   </script>
+  {% include "directory/_site_footer.html" %}
 </body>
 </html>

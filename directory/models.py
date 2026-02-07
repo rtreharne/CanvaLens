@@ -55,6 +55,8 @@ class CanvasCredential(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="canvas_credential")
     token = models.CharField(max_length=255, blank=True)
     sync_source = models.CharField(max_length=32, default="enrolled")
+    sync_start_at = models.DateTimeField(null=True, blank=True)
+    subaccounts_maintenance_mode = models.BooleanField(default=False)
     admin_account_id = models.BigIntegerField(null=True, blank=True)
     admin_account_name = models.CharField(max_length=255, blank=True)
     token_last_validated_at = models.DateTimeField(null=True, blank=True)

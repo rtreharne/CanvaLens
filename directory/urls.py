@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path("", views.index, name="index"),
+    path("embed/auth/start/", views.embed_auth_start, name="embed_auth_start"),
     path("admin-dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path("admin-dashboard/subaccounts/create/", views.admin_subaccount_create, name="admin_subaccount_create"),
     path(
@@ -15,10 +16,21 @@ urlpatterns = [
         views.admin_subaccount_toggle_active,
         name="admin_subaccount_toggle_active",
     ),
+    path(
+        "admin-dashboard/subaccounts/<int:subaccount_id>/delete/",
+        views.admin_subaccount_delete,
+        name="admin_subaccount_delete",
+    ),
     path("canvas/settings/save/", views.canvas_settings_save, name="canvas_settings_save"),
     path("canvas/sync-source/save/", views.canvas_sync_source_save, name="canvas_sync_source_save"),
+    path("canvas/sync-start/save/", views.canvas_sync_start_save, name="canvas_sync_start_save"),
     path("canvas/sync/", views.canvas_sync, name="canvas_sync"),
     path("canvas/sync/progress/", views.canvas_sync_progress, name="canvas_sync_progress"),
+    path(
+        "canvas/subaccounts/maintenance/toggle/",
+        views.canvas_subaccounts_maintenance_toggle,
+        name="canvas_subaccounts_maintenance_toggle",
+    ),
     path("canvas/burn-everything/", views.canvas_burn_everything, name="canvas_burn_everything"),
     path("canvas/assignments/", views.canvas_assignments, name="canvas_assignments"),
     path("canvas/assignments/data/", views.canvas_assignments_data, name="canvas_assignments_data"),

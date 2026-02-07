@@ -2,6 +2,7 @@ from functools import wraps
 import re
 import secrets
 import json
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
@@ -65,6 +66,22 @@ def _effective_canvas_user(user):
     return user
 
 
+def _related_sync_in_progress(user):
+    related_user_ids = {user.id}
+    profile = getattr(user, "canvas_subaccount_profile", None)
+    if profile and profile.owner_id:
+        related_user_ids.add(profile.owner_id)
+        owner_sub_ids = CanvasSubAccount.objects.filter(owner_id=profile.owner_id).values_list("user_id", flat=True)
+        related_user_ids.update(owner_sub_ids)
+    else:
+        sub_ids = CanvasSubAccount.objects.filter(owner_id=user.id).values_list("user_id", flat=True)
+        related_user_ids.update(sub_ids)
+    return CanvasCredential.objects.filter(
+        user_id__in=related_user_ids,
+        sync_status__in=["queued", "running"],
+    ).exists()
+
+
 def _is_subaccount_user(user):
     return bool(getattr(user, "canvas_subaccount_profile", None))
 
@@ -113,6 +130,22 @@ def _load_available_accounts(client):
     return client.list_accounts()
 
 
+def _default_sync_start(now=None):
+    now = now or timezone.now()
+    tz = timezone.get_default_timezone()
+    sept_this_year = timezone.make_aware(datetime(now.year, 9, 1, 0, 0, 0), tz)
+    if now < sept_this_year:
+        return timezone.make_aware(datetime(now.year - 1, 9, 1, 0, 0, 0), tz)
+    return sept_this_year
+
+
+def _as_datetime_local_value(dt):
+    if not dt:
+        return ""
+    local_dt = timezone.localtime(dt)
+    return local_dt.strftime("%Y-%m-%dT%H:%M")
+
+
 def _course_name_query(value):
     raw = (value or "").strip()
     if not raw:
@@ -142,6 +175,13 @@ def _purge_expired_submission_reports(user):
 
 def _is_ajax_request(request):
     return request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+def _safe_next_path(value, fallback="/"):
+    next_path = (value or "").strip()
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        return fallback
+    return next_path
 
 
 def _reports_for_user(user):
@@ -294,6 +334,23 @@ def index(request):
 
 
 @require_GET
+def embed_auth_start(request):
+    next_path = _safe_next_path(request.GET.get("next"), "/")
+    if request.user.is_authenticated:
+        return redirect(next_path)
+
+    login_url = f"/login/?{urlencode({'next': next_path})}"
+    return render(
+        request,
+        "directory/embed_auth_start.html",
+        {
+            "next_path": next_path,
+            "login_url": login_url,
+        },
+    )
+
+
+@require_GET
 @owner_account_required
 def admin_dashboard(request):
     credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
@@ -310,6 +367,8 @@ def admin_dashboard(request):
         course__user=request.user, is_active=True, published=True
     ).count()
     subaccounts = CanvasSubAccount.objects.select_related("user").filter(owner=request.user)
+    sync_start_dt = credential.sync_start_at or _default_sync_start()
+    now_local = timezone.localtime(timezone.now())
     return render(
         request,
         "directory/admin_dashboard.html",
@@ -321,6 +380,8 @@ def admin_dashboard(request):
             "courses_count": courses_count,
             "assignments_count": assignments_count,
             "subaccounts": subaccounts,
+            "sync_start_at_input": _as_datetime_local_value(sync_start_dt),
+            "sync_start_at_max": now_local.strftime("%Y-%m-%dT%H:%M"),
         },
     )
 
@@ -349,9 +410,9 @@ def canvas_settings_save(request):
         error = "Token is required."
 
     if success:
-        messages.success(request, success)
+        messages.success(request, success, extra_tags="canvas_settings")
     if error:
-        messages.error(request, error)
+        messages.error(request, error, extra_tags="canvas_settings")
     return _admin_or_assignments_redirect(request)
 
 
@@ -363,9 +424,9 @@ def canvas_sync(request):
     if not credential.token:
         messages.error(request, "Add and validate your Canvas token first.")
         return _admin_or_assignments_redirect(request)
-    sync_mode = (request.POST.get("sync_mode") or "all").strip().lower()
-    if sync_mode not in {"all", "existing"}:
-        sync_mode = "all"
+    if _related_sync_in_progress(request.user):
+        messages.error(request, "A sync is already running for this account group.")
+        return redirect("canvas_assignments")
     credential.sync_status = "queued"
     credential.sync_total_courses = 0
     credential.sync_processed_courses = 0
@@ -381,7 +442,7 @@ def canvas_sync(request):
             "updated_at",
         ]
     )
-    sync_canvas_for_user.delay(canvas_user.id, existing_only=(sync_mode == "existing"))
+    sync_canvas_for_user.delay(canvas_user.id)
     return redirect("canvas_assignments")
 
 
@@ -393,7 +454,7 @@ def canvas_sync_source_save(request):
     account_id_raw = (request.POST.get("admin_account_id") or "").strip()
 
     if sync_source not in {"enrolled", "admin_account"}:
-        messages.error(request, "Invalid sync source.")
+        messages.error(request, "Invalid sync source.", extra_tags="canvas_settings")
         return redirect("admin_dashboard")
 
     if sync_source == "enrolled":
@@ -401,24 +462,28 @@ def canvas_sync_source_save(request):
         credential.admin_account_id = None
         credential.admin_account_name = ""
         credential.save(update_fields=["sync_source", "admin_account_id", "admin_account_name", "updated_at"])
-        messages.success(request, "Sync source set to enrolled courses.")
+        messages.success(request, "Sync source set to enrolled courses.", extra_tags="canvas_settings")
         return redirect("admin_dashboard")
 
     if not credential.token:
-        messages.error(request, "Save and validate your Canvas token before choosing an admin account.")
+        messages.error(
+            request,
+            "Save and validate your Canvas token before choosing an admin account.",
+            extra_tags="canvas_settings",
+        )
         return redirect("admin_dashboard")
 
     try:
         selected_account_id = int(account_id_raw)
     except (TypeError, ValueError):
-        messages.error(request, "Choose a valid admin account.")
+        messages.error(request, "Choose a valid admin account.", extra_tags="canvas_settings")
         return redirect("admin_dashboard")
 
     try:
         client = CanvasClient(settings.CANVAS_URL, credential.token)
         accounts = _load_available_accounts(client)
     except CanvasClientError as exc:
-        messages.error(request, str(exc))
+        messages.error(request, str(exc), extra_tags="canvas_settings")
         return redirect("admin_dashboard")
 
     selected_account = None
@@ -427,14 +492,60 @@ def canvas_sync_source_save(request):
             selected_account = account
             break
     if not selected_account:
-        messages.error(request, "Selected account is not in your manageable accounts.")
+        messages.error(
+            request,
+            "Selected account is not in your manageable accounts.",
+            extra_tags="canvas_settings",
+        )
         return redirect("admin_dashboard")
 
     credential.sync_source = "admin_account"
     credential.admin_account_id = selected_account_id
     credential.admin_account_name = (selected_account.get("name") or "")[:255]
     credential.save(update_fields=["sync_source", "admin_account_id", "admin_account_name", "updated_at"])
-    messages.success(request, f"Sync source set to admin account: {credential.admin_account_name or selected_account_id}")
+    messages.success(
+        request,
+        f"Sync source set to admin account: {credential.admin_account_name or selected_account_id}",
+        extra_tags="canvas_settings",
+    )
+    return redirect("admin_dashboard")
+
+
+@require_POST
+@owner_account_required
+def canvas_sync_start_save(request):
+    credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
+    raw = (request.POST.get("sync_start_at") or "").strip()
+    if not raw:
+        credential.sync_start_at = None
+        credential.save(update_fields=["sync_start_at", "updated_at"])
+        messages.success(
+            request,
+            "Sync start reset to default (previous September 1).",
+            extra_tags="canvas_settings",
+        )
+        return redirect("admin_dashboard")
+
+    parsed = parse_datetime(raw)
+    if not parsed:
+        messages.error(request, "Enter a valid date and time.", extra_tags="canvas_settings")
+        return redirect("admin_dashboard")
+
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
+
+    now = timezone.now()
+    if parsed > now:
+        messages.error(request, "Sync start must be in the past.", extra_tags="canvas_settings")
+        return redirect("admin_dashboard")
+
+    credential.sync_start_at = parsed
+    credential.save(update_fields=["sync_start_at", "updated_at"])
+    messages.success(
+        request,
+        f"Sync start updated to {timezone.localtime(parsed).strftime('%Y-%m-%d %H:%M')}.",
+        extra_tags="canvas_settings",
+    )
     return redirect("admin_dashboard")
 
 
@@ -443,6 +554,7 @@ def canvas_sync_source_save(request):
 def canvas_sync_progress(request):
     canvas_user = _effective_canvas_user(request.user)
     credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
+    sync_locked = _related_sync_in_progress(request.user)
     total = max(int(credential.sync_total_courses or 0), 0)
     processed = max(int(credential.sync_processed_courses or 0), 0)
     if total > 0:
@@ -459,6 +571,7 @@ def canvas_sync_progress(request):
             "current_course_name": credential.sync_current_course_name or "",
             "percent": percent,
             "last_error": credential.last_error or "",
+            "sync_locked": sync_locked,
         }
     )
 
@@ -482,7 +595,22 @@ def canvas_burn_everything(request):
         f"{deleted_moderation_reports} moderation reports, "
         f"{deleted_reviews} moderation review rows, "
         f"and {deleted_preferences} moderation preference rows for your account.",
+        extra_tags="danger_zone",
     )
+    return redirect("admin_dashboard")
+
+
+@require_POST
+@owner_account_required
+def canvas_subaccounts_maintenance_toggle(request):
+    credential, _ = CanvasCredential.objects.get_or_create(user=request.user)
+    enable_requested = (request.POST.get("enable") or "").strip() == "1"
+    credential.subaccounts_maintenance_mode = enable_requested
+    credential.save(update_fields=["subaccounts_maintenance_mode", "updated_at"])
+    if enable_requested:
+        messages.success(request, "Sub-account maintenance mode enabled.", extra_tags="danger_zone")
+    else:
+        messages.success(request, "Sub-account maintenance mode disabled.", extra_tags="danger_zone")
     return redirect("admin_dashboard")
 
 
@@ -491,16 +619,17 @@ def canvas_burn_everything(request):
 def admin_subaccount_create(request):
     username = (request.POST.get("username") or "").strip()
     if not username:
-        messages.error(request, "Username is required.")
+        messages.error(request, "Username is required.", extra_tags="subaccounts")
         return redirect("admin_dashboard")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{3,150}", username):
         messages.error(
             request,
             "Username must be 3-150 chars and only contain letters, numbers, underscore, dot, or hyphen.",
+            extra_tags="subaccounts",
         )
         return redirect("admin_dashboard")
     if User.objects.filter(username__iexact=username).exists():
-        messages.error(request, f"Username '{username}' is already in use.")
+        messages.error(request, f"Username '{username}' is already in use.", extra_tags="subaccounts")
         return redirect("admin_dashboard")
 
     password = _generate_memorable_password()
@@ -514,6 +643,7 @@ def admin_subaccount_create(request):
     messages.success(
         request,
         f"Created sub-account '{username}'. Temporary password: {password}",
+        extra_tags="subaccounts",
     )
     return redirect("admin_dashboard")
 
@@ -532,6 +662,7 @@ def admin_subaccount_reset_password(request, subaccount_id):
     messages.success(
         request,
         f"Reset password for '{subaccount.user.username}'. New temporary password: {new_password}",
+        extra_tags=f"subaccounts subuser_{subaccount.user.username}",
     )
     return redirect("admin_dashboard")
 
@@ -547,7 +678,29 @@ def admin_subaccount_toggle_active(request, subaccount_id):
     subaccount.user.is_active = not subaccount.user.is_active
     subaccount.user.save(update_fields=["is_active"])
     state = "active" if subaccount.user.is_active else "disabled"
-    messages.success(request, f"Sub-account '{subaccount.user.username}' is now {state}.")
+    messages.success(
+        request,
+        f"Sub-account '{subaccount.user.username}' is now {state}.",
+        extra_tags=f"subaccounts subuser_{subaccount.user.username}",
+    )
+    return redirect("admin_dashboard")
+
+
+@require_POST
+@owner_account_required
+def admin_subaccount_delete(request, subaccount_id):
+    subaccount = get_object_or_404(
+        CanvasSubAccount.objects.select_related("user"),
+        id=subaccount_id,
+        owner=request.user,
+    )
+    username = subaccount.user.username
+    subaccount.user.delete()
+    messages.success(
+        request,
+        f"Deleted sub-account '{username}'.",
+        extra_tags="subaccounts",
+    )
     return redirect("admin_dashboard")
 
 
@@ -559,6 +712,7 @@ def canvas_assignments(request):
     payload = _build_canvas_assignments_context(request)
     credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
     reports, active_report = _reports_for_user(canvas_user)
+    sync_locked = _related_sync_in_progress(request.user)
 
     return render(
         request,
@@ -570,6 +724,7 @@ def canvas_assignments(request):
             "reports": reports,
             "active_report": active_report,
             "can_access_admin": not _is_subaccount_user(request.user),
+            "sync_locked": sync_locked,
         },
     )
 
@@ -995,7 +1150,31 @@ def canvas_reports_create(request):
         "assignment_name": (request.POST.get("assignment_name") or "").strip(),
         "date_from": (request.POST.get("date_from") or "").strip(),
         "date_to": (request.POST.get("date_to") or "").strip(),
+        "isolated_assignment_id": (request.POST.get("isolated_assignment_id") or "").strip(),
     }
+    isolated_assignment_id_raw = filters.get("isolated_assignment_id") or ""
+    if isolated_assignment_id_raw:
+        try:
+            isolated_assignment_id = int(isolated_assignment_id_raw)
+        except (TypeError, ValueError):
+            error_msg = "Invalid isolated assignment."
+            if is_ajax:
+                return JsonResponse({"ok": False, "error": error_msg}, status=400)
+            messages.error(request, error_msg)
+            return redirect("canvas_assignments")
+        exists = CanvasAssignment.objects.filter(
+            id=isolated_assignment_id,
+            course__user=canvas_user,
+            course__is_active=True,
+            is_active=True,
+            published=True,
+        ).exists()
+        if not exists:
+            error_msg = "Isolated assignment is no longer available."
+            if is_ajax:
+                return JsonResponse({"ok": False, "error": error_msg}, status=400)
+            messages.error(request, error_msg)
+            return redirect("canvas_assignments")
     report = CanvasSubmissionReport.objects.create(
         user=canvas_user,
         status="pending",

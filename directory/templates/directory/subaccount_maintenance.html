@@ -4,18 +4,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Staff Login — University of Liverpool</title>
+  <title>Maintenance — Canvas Lens</title>
   <link rel="stylesheet" href="https://www.liverpool.ac.uk/rb/latest/assets/redbrick.css" />
   <style>
     .rb-page { background: #f5f6fa; }
-    .rb-login { max-width: 520px; margin: 60px auto; }
     .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
     .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
     .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
     .rb-title-block .rb-lockup { font-size: 300%; }
     .rb-title-block .rb-lockup + .rb-lockup { margin-top: -2px; }
     @media (max-width: 900px) { .rb-title-block { min-height: 72px; } }
-    @media (max-width: 768px) { .rb-login { margin: 30px auto; } }
   </style>
 </head>
 <body class="rb-page">
@@ -42,27 +40,16 @@
   </section>
 
   <section class="rb-block-cover">
-    <div class="rb-block-container rb-login">
+    <div class="rb-block-container">
       <div class="rb-card">
         <div class="rb-card__inner">
-          <h2 class="rb-card__title">Staff Login</h2>
-          <form method="post">
+          <h3 class="rb-card__title">Sub-account Maintenance Mode</h3>
+          <p>Your account is temporarily unavailable while maintenance is in progress.</p>
+          <p>Please contact your Canvas Lens administrator for updates.</p>
+          <form method="post" action="/logout/" style="display:inline;">
             {% csrf_token %}
-            <div class="rb-formgroup">
-              <label class="rb-formgroup__label" for="id_username">Username</label>
-              <input class="rb-input" type="text" name="username" id="id_username" required />
-            </div>
-            <div class="rb-formgroup">
-              <label class="rb-formgroup__label" for="id_password">Password</label>
-              <input class="rb-input" type="password" name="password" id="id_password" required />
-            </div>
-            <div class="rb-buttongroup">
-              <button class="rb-button rb-button--primary" type="submit">Sign in</button>
-            </div>
+            <button class="rb-button rb-button--ghost" type="submit">Logout</button>
           </form>
-          {% if form.errors %}
-            <div class="text-rb--color--grey">Invalid credentials.</div>
-          {% endif %}
         </div>
       </div>
     </div>

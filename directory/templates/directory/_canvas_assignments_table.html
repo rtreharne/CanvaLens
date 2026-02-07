@@ -15,7 +15,7 @@
     </thead>
     <tbody>
       {% for a in assignments %}
-        <tr>
+        <tr data-assignment-id="{{ a.id }}" class="assignment-row" title="Click row to isolate this assignment">
           <td>{{ a.course.name }}</td>
           <td><a href="{{ a.html_url }}" target="_blank" rel="noopener">{{ a.name }}</a></td>
           <td>{% if a.raw_data.has_submitted_submissions %}Yes{% else %}No{% endif %}</td>

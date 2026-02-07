@@ -1,0 +1,32 @@
+<style>
+  .cl-footer {
+    margin-top: 28px;
+    border-top: 1px solid #3a404b;
+    background: #2f343d;
+  }
+  .cl-footer__inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    min-height: 200px;
+    padding: 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #e8edf5;
+    font-size: 0.95rem;
+    text-align: center;
+  }
+  @media (max-width: 700px) {
+    .cl-footer__inner {
+      flex-direction: column;
+      align-items: center;
+    }
+  }
+</style>
+<footer class="cl-footer" role="contentinfo">
+  <div class="cl-footer__inner">
+    <span>Canvas Lens</span>
+    <span>&copy; University of Liverpool</span>
+  </div>
+</footer>

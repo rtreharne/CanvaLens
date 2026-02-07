@@ -11,11 +11,257 @@
     .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
     .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
     .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .rb-title-block .rb-lockup { font-size: 300%; }
     .rb-title-block .rb-lockup + .rb-lockup { margin-top: -2px; }
+    .cl-alert {
+      border-radius: 8px;
+      border: 1px solid #d4dbe8;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      font-size: 0.95rem;
+      line-height: 1.35;
+      background: #f7f9fd;
+      color: #1f2f4a;
+    }
+    .cl-alert--success {
+      background: #edf8f0;
+      border-color: #b8dfc4;
+      color: #1f5a2f;
+    }
+    .cl-alert--error {
+      background: #fdf0f0;
+      border-color: #efc8c8;
+      color: #8d1b1b;
+    }
+    .cl-sub-row-message { margin-top: 8px; }
+    .is-hidden { display: none !important; }
+    .settings-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .settings-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin: 0;
+    }
+    .settings-field label {
+      margin: 0;
+      line-height: 1.2;
+      font-size: 0.95rem;
+      color: #2b456d;
+      font-weight: 600;
+    }
+    .settings-field select,
+    .settings-field input {
+      width: 100%;
+      max-width: 560px;
+      box-sizing: border-box;
+    }
+    .back-to-top-btn {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 1000;
+    }
+    .back-to-top-btn__icon {
+      display: none;
+      font-size: 1.2rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .admin-quicknav {
+      position: fixed;
+      right: 18px;
+      top: 170px;
+      z-index: 1200;
+      width: 220px;
+      background: #ffffff;
+      border: 1px solid #d8e0ef;
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(23, 45, 78, 0.15);
+      padding: 10px 12px;
+    }
+    .admin-quicknav-title {
+      margin: 0 0 8px 0;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #3d557f;
+      font-weight: 700;
+    }
+    .admin-quicknav a {
+      display: block;
+      color: #005ea5;
+      text-decoration: none;
+      font-size: 0.9rem;
+      padding: 4px 0;
+    }
+    .admin-quicknav a:hover {
+      text-decoration: underline;
+      color: #0a4684;
+    }
+    .admin-anchor {
+      scroll-margin-top: 96px;
+    }
+    .admin-quicknav-open {
+      display: none;
+    }
+    .admin-quicknav-close {
+      display: none;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 14px;
+    }
+    .stat-card {
+      border: 1px solid #d9dee8;
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px 12px;
+    }
+    .stat-title {
+      font-size: 0.9rem;
+      color: #59627a;
+      margin: 0 0 4px 0;
+    }
+    .stat-value {
+      margin: 0;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #132c51;
+      line-height: 1.2;
+    }
+    .stat-value--meta {
+      font-size: 1rem;
+      line-height: 1.35;
+      font-weight: 600;
+      word-break: break-word;
+    }
+    .status-pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      line-height: 1.2;
+      text-transform: capitalize;
+      color: #1f4f84;
+      background: #e8f1fd;
+      border: 1px solid #c9dcf7;
+    }
+    .status-pill--running,
+    .status-pill--queued {
+      color: #8a5a14;
+      background: #fff3df;
+      border-color: #f2d2a4;
+    }
+    .status-pill--error {
+      color: #8d1b1b;
+      background: #ffdede;
+      border-color: #e9b3b3;
+    }
+    .status-pill--ok {
+      color: #1f5a2f;
+      background: #e8f7ed;
+      border-color: #b9e3c7;
+    }
+    .span-full { grid-column: 1 / -1; }
+    @media (max-width: 1000px) {
+      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     @media (max-width: 900px) { .rb-title-block { min-height: 72px; } }
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: 1fr; }
+      .back-to-top-btn {
+        right: 14px;
+        bottom: 14px;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        padding: 0;
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .back-to-top-btn__label {
+        display: none;
+      }
+      .back-to-top-btn__icon {
+        display: inline-block;
+      }
+    }
+    @media (max-width: 1300px) {
+      .admin-quicknav-open {
+        display: inline-flex;
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 2200;
+        width: 42px;
+        height: 42px;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        font-size: 1.25rem;
+        line-height: 1;
+      }
+      .admin-quicknav {
+        display: none;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100dvh;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: rgba(15, 25, 40, 0.98);
+        z-index: 2100;
+        padding: 24px 20px 100px 20px;
+      }
+      .admin-quicknav.is-open {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-evenly;
+        gap: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .admin-quicknav-title {
+        display: none;
+      }
+      .admin-quicknav a {
+        color: #ffffff;
+        font-size: clamp(1rem, 3.8vw, 1.25rem);
+        text-align: center;
+        padding: 6px 0;
+        width: 100%;
+      }
+      .admin-quicknav a:hover {
+        color: #cfe0ff;
+      }
+      .admin-quicknav-close {
+        display: inline-flex;
+      }
+    }
   </style>
 </head>
 <body class="rb-page">
+  <nav id="admin-quicknav" class="admin-quicknav" aria-label="Admin quick navigation">
+    <p class="admin-quicknav-title">On This Page</p>
+    <a href="#admin-status-section">Your Canvas Status</a>
+    <a href="#admin-settings-section">Canvas Settings</a>
+    <a href="#admin-subaccounts-section">Sub-Accounts</a>
+    <a href="#admin-danger-section">Danger Zone</a>
+    <button id="admin-quicknav-close" class="rb-button rb-button--ghost admin-quicknav-close" type="button">Close</button>
+  </nav>
+  <button id="admin-quicknav-open" class="rb-button rb-button--primary admin-quicknav-open" type="button" aria-label="Open page navigation">&#9776;</button>
   <header class="rb-header">
     <div class="rb-header__global rb-header__container">
       <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
@@ -33,61 +279,111 @@
   <section class="rb-block-cover bg-rb--color--blue text-white">
     <div class="rb-block-container">
       <div class="rb-title-block">
-        <h2 class="rb-lockup">Canvas Lens Admin</h2>
+        <h2 class="rb-lockup">Canvas Lens</h2>
       </div>
     </div>
   </section>
 
-  <section class="rb-block-cover">
+  <section class="rb-block-cover" data-admin-ajax-root>
     <div class="rb-block-container">
-      {% if messages %}
-        {% for message in messages %}
-          <div class="rb-card">
-            <div class="rb-card__inner {% if message.tags == 'error' %}text-rb--color--error{% elif message.tags == 'success' %}text-rb--color--success{% endif %}">
-              {{ message }}
-            </div>
-          </div>
-        {% endfor %}
-      {% endif %}
+      <div class="rb-buttongroup" style="margin-bottom: 12px;">
+        <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Back to assignments</a>
+      </div>
 
-      <div class="rb-card">
+      <div id="admin-status-section" class="rb-card admin-anchor">
         <div class="rb-card__inner">
           <h3 class="rb-card__title">Your Canvas Status</h3>
-          <p>Token validated: {{ credential.token_last_validated_at|default:"Never" }}</p>
-          <p>Last sync: {{ credential.last_sync_at|default:"Never" }}</p>
-          <p>Sync status: {{ credential.sync_status|default:"never" }}</p>
-          <p>Active courses: {{ courses_count }}</p>
-          <p>Published assignments: {{ assignments_count }}</p>
-          {% if credential and credential.last_error %}
-            <p class="text-rb--color--error">Last error: {{ credential.last_error }}</p>
-          {% endif %}
+          <div class="stats-grid">
+            <div class="stat-card">
+              <p class="stat-title">Token validated</p>
+              <p class="stat-value stat-value--meta">{{ credential.token_last_validated_at|default:"Never" }}</p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Last sync</p>
+              <p class="stat-value stat-value--meta">{{ credential.last_sync_at|default:"Never" }}</p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Sync status</p>
+              <p class="stat-value">
+                <span class="status-pill status-pill--{{ credential.sync_status|default:'never' }}">{{ credential.sync_status|default:"never" }}</span>
+              </p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Active courses</p>
+              <p class="stat-value">{{ courses_count }}</p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-title">Published assignments</p>
+              <p class="stat-value">{{ assignments_count }}</p>
+            </div>
+            {% if credential and credential.last_error %}
+              <div class="stat-card span-full">
+                <p class="stat-title">Last error</p>
+                <p class="stat-value text-rb--color--error">{{ credential.last_error }}</p>
+              </div>
+            {% endif %}
+          </div>
         </div>
       </div>
 
-      <div class="rb-card">
+      <div id="admin-settings-section" class="rb-card admin-anchor">
         <div class="rb-card__inner">
           <h3 class="rb-card__title">Canvas Settings</h3>
           <p>Canvas URL: <strong>{{ canvas_url }}</strong></p>
+          {% if messages %}
+            {% for message in messages %}
+              {% if 'canvas_settings' in message.tags %}
+                <div class="cl-alert {% if 'error' in message.tags %}cl-alert--error{% elif 'success' in message.tags %}cl-alert--success{% endif %}">
+                  {{ message }}
+                </div>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
           <form method="post" action="/canvas/sync-source/save/" style="margin-bottom: 16px;">
             {% csrf_token %}
-            <label for="sync_source">Sync Source</label>
-            <select id="sync_source" name="sync_source">
-              <option value="enrolled" {% if credential.sync_source != "admin_account" %}selected{% endif %}>Enrolled courses</option>
-              <option value="admin_account" {% if credential.sync_source == "admin_account" %}selected{% endif %}>Specific admin account</option>
-            </select>
-            <label for="admin_account_id" style="margin-top: 10px;">Admin Account</label>
-            <select id="admin_account_id" name="admin_account_id">
-              <option value="">Choose account</option>
-              {% for account in manageable_accounts %}
-                <option value="{{ account.id }}" {% if credential.admin_account_id == account.id %}selected{% endif %}>
-                  {{ account.name }} ({{ account.id }})
-                </option>
-              {% endfor %}
-            </select>
+            <div class="settings-stack">
+              <div class="settings-field">
+                <label for="sync_source">Sync Source</label>
+                <select id="sync_source" name="sync_source">
+                  <option value="enrolled" {% if credential.sync_source != "admin_account" %}selected{% endif %}>Enrolled courses</option>
+                  <option value="admin_account" {% if credential.sync_source == "admin_account" %}selected{% endif %}>Specific admin account</option>
+                </select>
+              </div>
+              <div id="admin-account-fields" class="settings-field {% if credential.sync_source != "admin_account" %}is-hidden{% endif %}">
+                <label for="admin_account_id">Admin Account</label>
+                <select id="admin_account_id" name="admin_account_id">
+                  <option value="">Choose account</option>
+                  {% for account in manageable_accounts %}
+                    <option value="{{ account.id }}" {% if credential.admin_account_id == account.id %}selected{% endif %}>
+                      {{ account.name }} ({{ account.id }})
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
             {% if accounts_error %}
               <p class="text-rb--color--error" style="margin-top:8px;">Could not load manageable accounts: {{ accounts_error }}</p>
             {% endif %}
-            <button class="rb-button rb-button--ghost" type="submit" style="margin-top: 12px;">Save Sync Source</button>
+            <button class="rb-button rb-button--primary" type="submit" style="margin-top: 12px;">Save Sync Source</button>
+          </form>
+          <form method="post" action="/canvas/sync-start/save/" style="margin-bottom: 16px;">
+            {% csrf_token %}
+            <div class="settings-field">
+              <label for="sync_start_at">Include assignments on/after</label>
+              <input
+                id="sync_start_at"
+                name="sync_start_at"
+                type="datetime-local"
+                class="rb-input"
+                value="{{ sync_start_at_input }}"
+                max="{{ sync_start_at_max }}"
+              />
+            </div>
+            <p style="margin:8px 0 0 0; color:#59627a; font-size:0.9rem;">
+              Courses are included only if an assignment unlocks, locks, or is due after this datetime.
+              Default is previous September 1.
+            </p>
+            <button class="rb-button rb-button--primary" type="submit" style="margin-top: 12px;">Save Sync Start</button>
           </form>
           <form method="post" action="/canvas/settings/save/">
             {% csrf_token %}
@@ -98,10 +394,19 @@
         </div>
       </div>
 
-      <div class="rb-card">
+      <div id="admin-subaccounts-section" class="rb-card admin-anchor">
         <div class="rb-card__inner">
           <h3 class="rb-card__title">Sub-Accounts</h3>
           <p>Create and manage non-admin accounts for Canvas Lens.</p>
+          {% if messages %}
+            {% for message in messages %}
+              {% if 'subaccounts' in message.tags and 'subuser_' not in message.tags %}
+                <div class="cl-alert {% if 'error' in message.tags %}cl-alert--error{% elif 'success' in message.tags %}cl-alert--success{% endif %}">
+                  {{ message }}
+                </div>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
           <form method="post" action="/admin-dashboard/subaccounts/create/" style="margin-bottom:16px;">
             {% csrf_token %}
             <label for="subaccount-username">Username</label>
@@ -129,16 +434,29 @@
                     <td>
                       <form method="post" action="/admin-dashboard/subaccounts/{{ sub.id }}/reset-password/" style="display:inline;">
                         {% csrf_token %}
-                        <button class="rb-button rb-button--ghost" type="submit">Reset password</button>
+                        <button class="rb-button rb-button--primary" type="submit">Reset password</button>
                       </form>
                       <form method="post" action="/admin-dashboard/subaccounts/{{ sub.id }}/toggle-active/" style="display:inline;">
                         {% csrf_token %}
                         {% if sub.user.is_active %}
-                          <button class="rb-button rb-button--secondary" type="submit">Disable</button>
+                          <button class="rb-button rb-button--primary" type="submit">Disable</button>
                         {% else %}
                           <button class="rb-button rb-button--primary" type="submit">Enable</button>
                         {% endif %}
                       </form>
+                      <form method="post" action="/admin-dashboard/subaccounts/{{ sub.id }}/delete/" style="display:inline;" onsubmit="return confirm('Delete sub-account {{ sub.user.username }}? This cannot be undone.');">
+                        {% csrf_token %}
+                        <button class="rb-button rb-button--primary" type="submit">Delete</button>
+                      </form>
+                      {% with row_tag='subuser_'|add:sub.user.username %}
+                        {% for message in messages %}
+                          {% if row_tag in message.tags %}
+                            <div class="cl-alert cl-sub-row-message {% if 'error' in message.tags %}cl-alert--error{% else %}cl-alert--success{% endif %}">
+                              {{ message }}
+                            </div>
+                          {% endif %}
+                        {% endfor %}
+                      {% endwith %}
                     </td>
                   </tr>
                 {% empty %}
@@ -152,14 +470,170 @@
         </div>
       </div>
 
-      <div class="rb-buttongroup">
-        <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Canvas Lens</a>
-        <form method="post" action="/canvas/burn-everything/" style="display:inline;" onsubmit="return confirm('Delete all courses and assignments? This cannot be undone.');">
-          {% csrf_token %}
-          <button class="rb-button rb-button--secondary" type="submit">Burn Everything</button>
-        </form>
+      <div id="admin-danger-section" class="rb-card admin-anchor">
+        <div class="rb-card__inner">
+          <h3 class="rb-card__title text-rb--color--error">Danger Zone</h3>
+          <p>
+            Sub-account maintenance mode:
+            <strong>
+              {% if credential.subaccounts_maintenance_mode %}
+                Enabled
+              {% else %}
+                Disabled
+              {% endif %}
+            </strong>
+          </p>
+          {% if messages %}
+            {% for message in messages %}
+              {% if 'danger_zone' in message.tags %}
+                <div class="cl-alert {% if 'error' in message.tags %}cl-alert--error{% elif 'success' in message.tags %}cl-alert--success{% endif %}">
+                  {{ message }}
+                </div>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          <form method="post" action="/canvas/subaccounts/maintenance/toggle/" style="display:inline;">
+            {% csrf_token %}
+            {% if credential.subaccounts_maintenance_mode %}
+              <input type="hidden" name="enable" value="0" />
+              <button class="rb-button rb-button--primary" type="submit">Disable Maintenance Mode</button>
+            {% else %}
+              <input type="hidden" name="enable" value="1" />
+              <button class="rb-button rb-button--primary" type="submit">Enable Maintenance Mode</button>
+            {% endif %}
+          </form>
+          <p class="text-rb--color--error" style="margin-top: 12px;">This action permanently deletes your Canvas Lens data and cannot be undone.</p>
+          <form method="post" action="/canvas/burn-everything/" style="display:inline;" onsubmit="return confirm('Delete all courses and assignments? This cannot be undone.');">
+            {% csrf_token %}
+            <button class="rb-button rb-button--primary" type="submit">Burn Everything</button>
+          </form>
+        </div>
       </div>
     </div>
   </section>
+  <button id="back-to-top-btn" class="rb-button rb-button--primary back-to-top-btn is-hidden" type="button">
+    <span class="back-to-top-btn__label">Back to top</span>
+    <span class="back-to-top-btn__icon" aria-hidden="true">&#8593;</span>
+  </button>
+  <script>
+    (function () {
+      const rootSelector = "[data-admin-ajax-root]";
+
+      function toggleAdminAccountFields(scope) {
+        const container = (scope || document).querySelector("#admin-account-fields");
+        const syncSource = (scope || document).querySelector("#sync_source");
+        if (!container || !syncSource) return;
+        const show = syncSource.value === "admin_account";
+        container.classList.toggle("is-hidden", !show);
+      }
+
+      function setSubmitting(form, submitting, submitter) {
+        if (submitter) submitter.disabled = submitting;
+        const elements = form.querySelectorAll("button, input[type='submit']");
+        elements.forEach((el) => {
+          el.disabled = submitting;
+        });
+      }
+
+      document.addEventListener("submit", async function (event) {
+        const form = event.target;
+        if (!form || form.tagName !== "FORM") return;
+
+        const root = form.closest(rootSelector);
+        if (!root) return;
+
+        event.preventDefault();
+        const submitter = event.submitter || null;
+        setSubmitting(form, true, submitter);
+
+        try {
+          const resp = await fetch(form.action, {
+            method: (form.method || "post").toUpperCase(),
+            body: new FormData(form),
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+          });
+
+          const html = await resp.text();
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          const nextRoot = doc.querySelector(rootSelector);
+          if (nextRoot) {
+            root.innerHTML = nextRoot.innerHTML;
+            toggleAdminAccountFields(root);
+          } else {
+            window.location.href = "/admin-dashboard/";
+          }
+        } catch (err) {
+          alert("Could not complete request. Please try again.");
+        } finally {
+          setSubmitting(form, false, submitter);
+        }
+      });
+
+      document.addEventListener("change", function (event) {
+        if (event.target && event.target.id === "sync_source") {
+          const scope = event.target.closest(rootSelector) || document;
+          toggleAdminAccountFields(scope);
+        }
+      });
+
+      toggleAdminAccountFields(document);
+    })();
+
+    (function () {
+      const quickNav = document.getElementById("admin-quicknav");
+      const closeBtn = document.getElementById("admin-quicknav-close");
+      if (!quickNav || !closeBtn) return;
+
+      function isMobile() {
+        return window.matchMedia("(max-width: 1300px)").matches;
+      }
+
+      function closeQuickNav() {
+        quickNav.classList.remove("is-open");
+        document.body.style.overflow = "";
+      }
+
+      function openQuickNav() {
+        if (!isMobile()) return;
+        quickNav.classList.add("is-open");
+        document.body.style.overflow = "hidden";
+      }
+
+      document.addEventListener("click", function (ev) {
+        const openBtn = ev.target.closest("#admin-quicknav-open");
+        if (openBtn) {
+          openQuickNav();
+        }
+      });
+      closeBtn.addEventListener("click", closeQuickNav);
+      quickNav.addEventListener("click", function (ev) {
+        if (ev.target.tagName === "A") {
+          closeQuickNav();
+        }
+      });
+      window.addEventListener("resize", function () {
+        if (!isMobile()) {
+          closeQuickNav();
+        }
+      });
+    })();
+
+    (function () {
+      const backToTopBtn = document.getElementById("back-to-top-btn");
+      if (!backToTopBtn) return;
+
+      function updateVisibility() {
+        backToTopBtn.classList.toggle("is-hidden", window.scrollY <= 1000);
+      }
+
+      backToTopBtn.addEventListener("click", function () {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      window.addEventListener("scroll", updateVisibility, { passive: true });
+      updateVisibility();
+    })();
+  </script>
+  {% include "directory/_site_footer.html" %}
 </body>
 </html>

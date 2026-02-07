@@ -11,6 +11,7 @@
     .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
     .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
     .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .rb-title-block .rb-lockup { font-size: 300%; }
     .rb-title-block .rb-lockup + .rb-lockup { margin-top: -2px; }
     .sync-progress-wrap { width: 100%; max-width: 720px; }
     .sync-progress-track { width: 100%; height: 12px; background: #d9dee8; border-radius: 999px; overflow: hidden; }
@@ -52,11 +53,26 @@
     .table-wrap { width: 100%; overflow-x: auto; }
     .table-wrap .rb-table { min-width: 960px; }
     .reports-table .rb-table { min-width: 760px; }
+    .assignment-row { cursor: pointer; }
+    .assignment-row--isolated td {
+      background: #eaf2ff;
+      border-top: 1px solid #b7d0f8;
+      border-bottom: 1px solid #b7d0f8;
+    }
+    .assignment-row--dimmed {
+      opacity: 0.28;
+    }
     .back-to-top-btn {
       position: fixed;
       right: 20px;
       bottom: 20px;
       z-index: 1000;
+    }
+    .back-to-top-btn__icon {
+      display: none;
+      font-size: 1.2rem;
+      line-height: 1;
+      font-weight: 700;
     }
     @media (max-width: 1100px) {
       .filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -65,6 +81,24 @@
     @media (max-width: 640px) {
       .filters-grid { grid-template-columns: 1fr; }
       .table-wrap .rb-table { min-width: 760px; }
+      .back-to-top-btn {
+        right: 14px;
+        bottom: 14px;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        padding: 0;
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .back-to-top-btn__label {
+        display: none;
+      }
+      .back-to-top-btn__icon {
+        display: inline-block;
+      }
     }
   </style>
 </head>
@@ -99,8 +133,14 @@
         {% endif %}
         <form method="post" action="/canvas/sync/" style="display:inline;">
           {% csrf_token %}
-          <button class="rb-button rb-button--primary" type="submit" name="sync_mode" value="all">Sync All</button>
-          <button class="rb-button rb-button--ghost" type="submit" name="sync_mode" value="existing">Sync Existing</button>
+          <button
+            id="sync-canvas-btn"
+            class="rb-button rb-button--primary"
+            type="submit"
+            {% if sync_locked %}disabled title="A sync is already running for this account group."{% endif %}
+          >
+            Sync Canvas
+          </button>
         </form>
         <form method="post" action="/logout/" style="display:inline;">
           {% csrf_token %}
@@ -217,6 +257,7 @@
             <input type="hidden" name="assignment_name" />
             <input type="hidden" name="date_from" />
             <input type="hidden" name="date_to" />
+            <input type="hidden" name="isolated_assignment_id" />
           </form>
         </div>
       </div>
@@ -248,7 +289,10 @@
 
       <div class="rb-card">
         <div class="rb-card__inner">
-          <p id="assignments-count-label" style="margin:0 0 10px 0;">Assignments shown: {{ assignments|length }}</p>
+          <div class="rb-buttongroup" style="margin-bottom: 10px;">
+            <p id="assignments-count-label" style="margin:0;">Assignments shown: {{ assignments|length }}</p>
+            <button id="clear-isolation-btn" class="rb-button rb-button--ghost is-hidden" type="button">Clear isolation</button>
+          </div>
           <div id="assignments-table-container">
             {% include "directory/_canvas_assignments_table.html" with assignments=assignments %}
           </div>
@@ -257,7 +301,8 @@
     </div>
   </section>
   <button id="back-to-top-btn" class="rb-button rb-button--primary back-to-top-btn is-hidden" type="button">
-    Back to top
+    <span class="back-to-top-btn__label">Back to top</span>
+    <span class="back-to-top-btn__icon" aria-hidden="true">&#8593;</span>
   </button>
   <script>
     (function () {
@@ -280,6 +325,7 @@
       const fill = document.getElementById("sync-progress-fill");
       const statusLine = document.getElementById("sync-status-line");
       const courseLine = document.getElementById("sync-course-line");
+      const syncCanvasBtn = document.getElementById("sync-canvas-btn");
       if (!progressWrap || !fill || !statusLine || !courseLine) return;
       let pollTimer = null;
 
@@ -296,6 +342,15 @@
         }
         const inProgress = data.status === "queued" || data.status === "running";
         progressWrap.classList.toggle("is-hidden", !inProgress);
+        if (syncCanvasBtn) {
+          const locked = Boolean(data.sync_locked);
+          syncCanvasBtn.disabled = locked;
+          if (locked) {
+            syncCanvasBtn.title = "A sync is already running for this account group.";
+          } else {
+            syncCanvasBtn.removeAttribute("title");
+          }
+        }
         return inProgress;
       }
 
@@ -352,6 +407,7 @@
           if (input.name === "csrfmiddlewaretoken") return;
           payload.set(input.name, filterData.get(input.name) || "");
         });
+        payload.set("isolated_assignment_id", window.canvasIsolatedAssignmentId || "");
         const csrf = createForm.querySelector("input[name='csrfmiddlewaretoken']");
 
         try {
@@ -442,6 +498,9 @@
       const tableContainer = document.getElementById("assignments-table-container");
       const countLabel = document.getElementById("assignments-count-label");
       const clearButton = document.getElementById("clear-filters-btn");
+      const clearIsolationBtn = document.getElementById("clear-isolation-btn");
+      let isolatedAssignmentId = null;
+      window.canvasIsolatedAssignmentId = "";
       if (!form) return;
 
       function setClearButtonVisible(visible) {
@@ -473,6 +532,32 @@
         return { params, formData };
       }
 
+      function applyIsolation() {
+        if (!tableContainer) return;
+        const rows = tableContainer.querySelectorAll("tr[data-assignment-id]");
+        let isolatedRowExists = false;
+        rows.forEach((row) => {
+          const rowId = row.getAttribute("data-assignment-id");
+          const isIsolated = isolatedAssignmentId && rowId === isolatedAssignmentId;
+          if (isIsolated) {
+            isolatedRowExists = true;
+          }
+          row.classList.toggle("assignment-row--isolated", Boolean(isIsolated));
+          row.classList.toggle("assignment-row--dimmed", Boolean(isolatedAssignmentId) && !isIsolated);
+        });
+        if (isolatedAssignmentId && !isolatedRowExists) {
+          isolatedAssignmentId = null;
+          rows.forEach((row) => {
+            row.classList.remove("assignment-row--isolated");
+            row.classList.remove("assignment-row--dimmed");
+          });
+        }
+        if (clearIsolationBtn) {
+          clearIsolationBtn.classList.toggle("is-hidden", !isolatedAssignmentId);
+        }
+        window.canvasIsolatedAssignmentId = isolatedAssignmentId || "";
+      }
+
       async function applyFilters(pushUrl) {
         if (!tableContainer) return;
         const { params, formData } = serializeForm();
@@ -483,6 +568,7 @@
           if (!resp.ok) return;
           const data = await resp.json();
           tableContainer.innerHTML = data.table_html || "";
+          applyIsolation();
           if (countLabel) {
             countLabel.textContent = "Assignments shown: " + Number(data.count || 0);
           }
@@ -495,6 +581,24 @@
           return;
         }
         setClearButtonVisible(hasActiveFilters(formData));
+      }
+
+      if (tableContainer) {
+        tableContainer.addEventListener("click", function (ev) {
+          const row = ev.target.closest("tr[data-assignment-id]");
+          if (!row) return;
+          if (ev.target.closest("a, button, input, select, textarea, form")) return;
+          const clickedId = row.getAttribute("data-assignment-id");
+          isolatedAssignmentId = (isolatedAssignmentId === clickedId) ? null : clickedId;
+          applyIsolation();
+        });
+      }
+
+      if (clearIsolationBtn) {
+        clearIsolationBtn.addEventListener("click", function () {
+          isolatedAssignmentId = null;
+          applyIsolation();
+        });
       }
 
       form.addEventListener("submit", function (ev) {
@@ -538,7 +642,10 @@
           applyFilters(true);
         });
       }
+
+      applyIsolation();
     })();
   </script>
+  {% include "directory/_site_footer.html" %}
 </body>
 </html>

@@ -543,23 +543,20 @@ def _parse_canvas_dt(value):
     return dt
 
 
-def _previous_september_window(now):
+def _default_sync_start(now):
     tz = dj_timezone.get_default_timezone()
     sept_this_year = dj_timezone.make_aware(datetime(now.year, 9, 1, 0, 0, 0), tz)
     if now < sept_this_year:
-        window_start = dj_timezone.make_aware(datetime(now.year - 1, 9, 1, 0, 0, 0), tz)
-    else:
-        window_start = sept_this_year
-    window_end = dj_timezone.make_aware(datetime(window_start.year + 1, 9, 1, 0, 0, 0), tz)
-    return window_start, window_end
+        return dj_timezone.make_aware(datetime(now.year - 1, 9, 1, 0, 0, 0), tz)
+    return sept_this_year
 
 
-def _assignment_in_window(assignment_data, window_start, window_end):
+def _assignment_on_or_after_start(assignment_data, window_start):
     unlock_at = _parse_canvas_dt((assignment_data or {}).get("unlock_at"))
     close_at = _parse_canvas_dt((assignment_data or {}).get("lock_at"))
     due_at = _parse_canvas_dt((assignment_data or {}).get("due_at"))
     for dt in (unlock_at, close_at, due_at):
-        if dt and window_start <= dt < window_end:
+        if dt and dt >= window_start:
             return True
     return False
 
@@ -981,6 +978,7 @@ def _holm_bonferroni_adjust(p_values):
 
 
 def _filtered_assignments_for_report(user_id, filters):
+    isolated_assignment_id_raw = (filters.get("isolated_assignment_id") or "").strip()
     course_id = (filters.get("course") or "").strip()
     course_name = (filters.get("course_name") or "").strip()
     assignment_type = (filters.get("assignment_type") or "").strip()
@@ -997,6 +995,13 @@ def _filtered_assignments_for_report(user_id, filters):
         is_active=True,
         published=True,
     )
+
+    if isolated_assignment_id_raw:
+        try:
+            isolated_assignment_id = int(isolated_assignment_id_raw)
+        except (TypeError, ValueError):
+            return []
+        return list(assignments.filter(id=isolated_assignment_id).order_by("due_at", "name"))
 
     if course_id:
         assignments = assignments.filter(course_id=course_id)
@@ -1028,6 +1033,8 @@ def _filtered_assignments_for_report(user_id, filters):
 
 @shared_task
 def sync_canvas_for_user(user_id, existing_only=False):
+    # Keep the deprecated arg for backward compatibility with queued tasks.
+    _ = existing_only
     credential = CanvasCredential.objects.filter(user_id=user_id).first()
     if not credential or not credential.token:
         return
@@ -1061,13 +1068,8 @@ def sync_canvas_for_user(user_id, existing_only=False):
             courses = client.list_account_courses(credential.admin_account_id)
         else:
             courses = enrolled_courses
-        if existing_only:
-            existing_course_ids = set(
-                CanvasCourse.objects.filter(user_id=user_id).values_list("canvas_id", flat=True)
-            )
-            courses = [c for c in courses if c.get("id") in existing_course_ids]
         now = dj_timezone.now()
-        window_start, window_end = _previous_september_window(now)
+        window_start = credential.sync_start_at or _default_sync_start(now)
         seen_course_ids = set()
         eligible_courses = []
 
@@ -1098,7 +1100,7 @@ def sync_canvas_for_user(user_id, existing_only=False):
             for assignment_data in assignments:
                 if not assignment_data.get("published", False):
                     continue
-                if _assignment_in_window(assignment_data, window_start, window_end):
+                if _assignment_on_or_after_start(assignment_data, window_start):
                     qualifying_assignments.append(assignment_data)
 
             if not qualifying_assignments:

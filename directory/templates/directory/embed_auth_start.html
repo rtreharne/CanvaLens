@@ -1,0 +1,103 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas Lens Access</title>
+  <link rel="stylesheet" href="https://www.liverpool.ac.uk/rb/latest/assets/redbrick.css" />
+  <style>
+    .rb-page { background: #f5f6fa; }
+    .rb-login { max-width: 760px; margin: 40px auto 70px; }
+    .rb-header__section .rb-block-container { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 64px; padding-top: 10px; }
+    .rb-header__logo { height: 50px; width: auto; opacity: 0.85; margin-left: 0; }
+    .rb-title-block { display: flex; flex-direction: column; justify-content: center; min-height: 96px; }
+    .rb-title-block .rb-lockup { font-size: 300%; }
+    .rb-helper-line { margin: 0 0 12px 0; color: #334869; }
+    .rb-status { min-height: 24px; margin-top: 10px; color: #334869; }
+    .rb-status--error { color: #8f1f1f; }
+    .rb-buttongroup { display: flex; flex-wrap: wrap; gap: 10px; }
+  </style>
+</head>
+<body class="rb-page">
+  <header class="rb-header">
+    <div class="rb-header__global rb-header__container">
+      <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
+        <span class="sr-only">Home</span>
+      </a>
+      <div style="margin-left:auto;"></div>
+    </div>
+    <div class="rb-header__section">
+      <div class="rb-block-container">
+        <img class="rb-header__logo" src="{% static 'uol_logo_reversed.png' %}" alt="University of Liverpool" />
+      </div>
+    </div>
+  </header>
+
+  <section class="rb-block-cover bg-rb--color--blue text-white">
+    <div class="rb-block-container">
+      <div class="rb-title-block">
+        <h2 class="rb-lockup">Canvas Lens</h2>
+      </div>
+    </div>
+  </section>
+
+  <section class="rb-block-cover">
+    <div class="rb-block-container rb-login">
+      <div class="rb-card">
+        <div class="rb-card__inner">
+          <h2 class="rb-card__title">Continue in Canvas</h2>
+          <p class="rb-helper-line">
+            Canvas is opening Canvas Lens in an iframe. Some browsers block sign-in cookies in embedded pages.
+          </p>
+          <p class="rb-helper-line">
+            1. Sign in once in a new tab.<br />
+            2. Come back here and click <strong>Continue in Canvas</strong>.
+          </p>
+          <div class="rb-buttongroup">
+            <a class="rb-button rb-button--primary" href="{{ login_url }}" target="_blank" rel="noopener">Open Sign-in in New Tab</a>
+            <button id="continue-btn" class="rb-button rb-button--primary" type="button">Continue in Canvas</button>
+            <a class="rb-button rb-button--ghost" href="{{ next_path }}" target="_blank" rel="noopener">Open App in New Tab</a>
+          </div>
+          <p id="status-line" class="rb-status"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {% include "directory/_site_footer.html" %}
+
+  <script>
+    (function () {
+      const nextPath = "{{ next_path|escapejs }}";
+      const continueBtn = document.getElementById("continue-btn");
+      const statusLine = document.getElementById("status-line");
+      if (!continueBtn || !statusLine) return;
+
+      async function continueInCanvas() {
+        statusLine.classList.remove("rb-status--error");
+        statusLine.textContent = "Checking browser access...";
+        try {
+          if (document.hasStorageAccess) {
+            const hasAccess = await document.hasStorageAccess();
+            if (!hasAccess && document.requestStorageAccess) {
+              statusLine.textContent = "Requesting cookie access for this iframe...";
+              await document.requestStorageAccess();
+            }
+          }
+        } catch (err) {
+          statusLine.classList.add("rb-status--error");
+          statusLine.textContent = "Browser blocked iframe cookie access. Use 'Open App in New Tab'.";
+          return;
+        }
+        statusLine.textContent = "Loading Canvas Lens...";
+        window.location.href = nextPath;
+      }
+
+      continueBtn.addEventListener("click", function () {
+        void continueInCanvas();
+      });
+    })();
+  </script>
+</body>
+</html>

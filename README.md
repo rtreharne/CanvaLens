@@ -73,6 +73,22 @@ Notes:
 - Canvas base URL is currently configured in code as:
   - `https://canvas.liverpool.ac.uk`
 
+Iframe / Canvas embedding defaults:
+
+- Session + CSRF cookies default to `SameSite=None` (with secure-cookie safeguards) for cross-site iframe support.
+- CSP `frame-ancestors` defaults include:
+  - `'self'`
+  - `https://canvas.liverpool.ac.uk`
+  - `https://*.instructure.com`
+- You can override/add origins with:
+  - `DJANGO_CSRF_TRUSTED_ORIGINS`
+  - `DJANGO_FRAME_ANCESTORS`
+- You can tune cookie behavior with:
+  - `DJANGO_SESSION_COOKIE_SECURE`
+  - `DJANGO_CSRF_COOKIE_SECURE`
+  - `DJANGO_SESSION_COOKIE_SAMESITE`
+  - `DJANGO_CSRF_COOKIE_SAMESITE`
+
 ## Quick Start
 
 1. Create `.env`
@@ -111,7 +127,7 @@ docker compose exec web python manage.py createsuperuser
 2. Go to **Admin Dashboard**.
 3. Paste Canvas token and save (token is validated).
 4. Optional: choose sync source (enrolled vs admin account).
-5. Trigger **Sync All** (or **Sync Existing**).
+5. Trigger **Sync All**.
 6. Open **Canvas Assignments** and apply filters.
 7. Click **Create Submissions Report**.
 8. Monitor progress and download CSV when complete.
@@ -158,4 +174,3 @@ docker compose up -d --build web worker scheduler
 
 - Non-authenticated users are redirected to login.
 - Non-staff authenticated users receive `403 Staff access required.`
-
