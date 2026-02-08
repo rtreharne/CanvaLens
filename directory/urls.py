@@ -4,6 +4,8 @@ from . import views
 urlpatterns = [
     path("", views.index, name="index"),
     path("embed/auth/start/", views.embed_auth_start, name="embed_auth_start"),
+    path("embed/auth/finish/", views.embed_auth_finish, name="embed_auth_finish"),
+    path("embed/auth/consume/", views.embed_auth_consume, name="embed_auth_consume"),
     path("admin-dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path("admin-dashboard/subaccounts/create/", views.admin_subaccount_create, name="admin_subaccount_create"),
     path(

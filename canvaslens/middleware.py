@@ -1,4 +1,4 @@
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.shortcuts import redirect, render
@@ -20,6 +20,18 @@ class StaffAccessMiddleware:
         path = request.path or "/"
         if path.startswith(self.EXEMPT_PREFIXES):
             return self.get_response(request)
+
+        if (
+            getattr(settings, "REQUIRE_CANVAS_EMBED", True)
+            and self._is_navigation_request(request)
+            and not self._is_embedded_request(request)
+        ):
+            return render(
+                request,
+                "directory/embed_required.html",
+                {"canvas_url": getattr(settings, "CANVAS_URL", "https://canvas.liverpool.ac.uk")},
+                status=403,
+            )
 
         if not request.user.is_authenticated:
             next_path = request.get_full_path()
@@ -50,8 +62,25 @@ class StaffAccessMiddleware:
         embed_flag = (request.GET.get("embed") or "").strip()
         if embed_flag == "1":
             return True
-        referer = (request.headers.get("Referer") or "").lower()
-        return "canvas.liverpool.ac.uk" in referer or ".instructure.com" in referer
+        referer = request.headers.get("Referer") or ""
+        try:
+            referer_host = (urlparse(referer).hostname or "").lower()
+        except ValueError:
+            referer_host = ""
+        return referer_host == "canvas.liverpool.ac.uk"
+
+    @staticmethod
+    def _is_navigation_request(request):
+        sec_fetch_mode = (request.headers.get("Sec-Fetch-Mode") or "").strip().lower()
+        if sec_fetch_mode == "navigate":
+            return True
+
+        sec_fetch_dest = (request.headers.get("Sec-Fetch-Dest") or "").strip().lower()
+        if sec_fetch_dest in {"document", "iframe"}:
+            return True
+
+        accept = (request.headers.get("Accept") or "").lower()
+        return request.method == "GET" and "text/html" in accept
 
 
 class FrameAncestorsMiddleware:

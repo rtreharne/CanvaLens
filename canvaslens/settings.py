@@ -67,7 +67,6 @@ MIDDLEWARE = [
     "canvaslens.middleware.StaffAccessMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "canvaslens.middleware.FrameAncestorsMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "canvaslens.urls"
@@ -137,16 +136,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Allow embedding in iframe contexts (Canvas).
-X_FRAME_OPTIONS = "ALLOWALL"
-FRAME_ANCESTORS = _unique(
-    [
-        "'self'",
-        "https://canvas.liverpool.ac.uk",
-        "https://*.instructure.com",
-    ]
-    + _env_list("DJANGO_FRAME_ANCESTORS")
-)
+# Allow iframe embedding only when parent is Liverpool Canvas.
+FRAME_ANCESTORS = [
+    "https://canvas.liverpool.ac.uk",
+]
 
 # Cookies for iframe compatibility.
 SESSION_COOKIE_SECURE = _env_bool("DJANGO_SESSION_COOKIE_SECURE", not DEBUG)
@@ -183,3 +176,4 @@ CELERY_BEAT_SCHEDULE = {
 
 # Canvas
 CANVAS_URL = "https://canvas.liverpool.ac.uk"
+REQUIRE_CANVAS_EMBED = _env_bool("DJANGO_REQUIRE_CANVAS_EMBED", True)

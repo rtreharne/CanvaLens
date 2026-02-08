@@ -54,8 +54,11 @@
             1. Sign in once in a new tab.<br />
             2. Come back here and click <strong>Continue in Canvas</strong>.
           </p>
+          <p class="rb-helper-line">
+            After sign-in, this page should continue automatically. If not, click <strong>Continue in Canvas</strong>.
+          </p>
           <div class="rb-buttongroup">
-            <a class="rb-button rb-button--primary" href="{{ login_url }}" target="_blank" rel="noopener">Open Sign-in in New Tab</a>
+            <a class="rb-button rb-button--primary" href="{{ login_url }}" target="_blank">Open Sign-in in New Tab</a>
             <button id="continue-btn" class="rb-button rb-button--primary" type="button">Continue in Canvas</button>
             <a class="rb-button rb-button--ghost" href="{{ next_path }}" target="_blank" rel="noopener">Open App in New Tab</a>
           </div>
@@ -73,6 +76,17 @@
       const continueBtn = document.getElementById("continue-btn");
       const statusLine = document.getElementById("status-line");
       if (!continueBtn || !statusLine) return;
+
+      function handleHandoffMessage(ev) {
+        if (ev.origin !== window.location.origin) return;
+        const data = ev.data || {};
+        if (data.type !== "canvaslens:embed-auth-complete" || !data.consumeUrl) return;
+        statusLine.classList.remove("rb-status--error");
+        statusLine.textContent = "Sign-in detected. Opening Canvas Lens...";
+        window.location.href = data.consumeUrl;
+      }
+
+      window.addEventListener("message", handleHandoffMessage);
 
       async function continueInCanvas() {
         statusLine.classList.remove("rb-status--error");

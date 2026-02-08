@@ -6,8 +6,10 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.db import transaction
 from django.contrib.auth.models import User
+from django.core import signing
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -36,6 +38,9 @@ from .tasks import (
     generate_submissions_report,
     sync_canvas_for_user,
 )
+
+EMBED_AUTH_SALT = "canvaslens.embed_auth_handoff"
+EMBED_AUTH_MAX_AGE_SECONDS = 300
 
 
 def app_user_required(view_func):
@@ -406,7 +411,8 @@ def embed_auth_start(request):
     if request.user.is_authenticated:
         return redirect(next_path)
 
-    login_url = f"/login/?{urlencode({'next': next_path})}"
+    finish_url = f"/embed/auth/finish/?{urlencode({'next': next_path})}"
+    login_url = f"/login/?{urlencode({'next': finish_url})}"
     return render(
         request,
         "directory/embed_auth_start.html",
@@ -415,6 +421,59 @@ def embed_auth_start(request):
             "login_url": login_url,
         },
     )
+
+
+@require_GET
+@app_user_required
+def embed_auth_finish(request):
+    next_path = _safe_next_path(request.GET.get("next"), "/")
+    token = signing.dumps(
+        {
+            "user_id": request.user.id,
+            "next_path": next_path,
+            "nonce": secrets.token_urlsafe(16),
+        },
+        salt=EMBED_AUTH_SALT,
+    )
+    consume_url = f"/embed/auth/consume/?{urlencode({'token': token})}"
+    return render(
+        request,
+        "directory/embed_auth_finish.html",
+        {
+            "consume_url": consume_url,
+            "next_path": next_path,
+        },
+    )
+
+
+@require_GET
+def embed_auth_consume(request):
+    token = (request.GET.get("token") or "").strip()
+    if not token:
+        return redirect("/embed/auth/start/?next=%2F")
+
+    try:
+        payload = signing.loads(
+            token,
+            salt=EMBED_AUTH_SALT,
+            max_age=EMBED_AUTH_MAX_AGE_SECONDS,
+        )
+    except signing.SignatureExpired:
+        return redirect("/embed/auth/start/?next=%2F")
+    except signing.BadSignature:
+        return redirect("/embed/auth/start/?next=%2F")
+
+    user_id = payload.get("user_id")
+    next_path = _safe_next_path(payload.get("next_path"), "/")
+    if not user_id:
+        return redirect("/embed/auth/start/?next=%2F")
+
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if not user:
+        return redirect("/embed/auth/start/?next=%2F")
+
+    auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return redirect(next_path)
 
 
 @require_GET
