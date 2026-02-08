@@ -29,7 +29,6 @@
       <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
         <span class="sr-only">Home</span>
       </a>
-      {% include "directory/_staff_identity.html" %}
     </div>
     <div class="rb-header__section">
       <div class="rb-block-container">
@@ -45,6 +44,13 @@
       </div>
     </div>
   </section>
+  {% if staff_username %}
+  <section class="rb-block-cover rb-block-cover--pt-0">
+    <div class="rb-block-container">
+      <p>Logged in as {{ staff_username }}</p>
+    </div>
+  </section>
+  {% endif %}
   {% include "directory/_site_footer.html" %}
 </body>
 </html>

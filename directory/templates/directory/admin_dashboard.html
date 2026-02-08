@@ -267,7 +267,6 @@
       <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
         <span class="sr-only">Home</span>
       </a>
-      {% include "directory/_staff_identity.html" %}
     </div>
     <div class="rb-header__section">
       <div class="rb-block-container">
@@ -299,6 +298,9 @@
               <p class="stat-value stat-value--meta">{{ credential.token_last_validated_at|default:"Never" }}</p>
             </div>
             <div class="stat-card">
+              {% if staff_username %}
+                <p class="stat-title">Logged in as {{ staff_username }}</p>
+              {% endif %}
               <p class="stat-title">Last sync</p>
               <p class="stat-value stat-value--meta">{{ credential.last_sync_at|default:"Never" }}</p>
             </div>
