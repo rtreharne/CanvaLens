@@ -134,7 +134,7 @@
           id="sync-start-form"
           method="post"
           action="{% url 'canvas_sync' %}"
-          style="display:{% if sync_locked %}none{% else %}inline{% endif %};"
+          style="display:{% if sync_locked or credential.sync_status == 'queued' or credential.sync_status == 'running' %}none{% else %}inline{% endif %};"
         >
           {% csrf_token %}
           <button
@@ -149,7 +149,7 @@
           id="sync-stop-form"
           method="post"
           action="{% url 'canvas_sync_stop' %}"
-          style="display:{% if sync_locked %}inline{% else %}none{% endif %};"
+          style="display:{% if sync_locked or credential.sync_status == 'queued' or credential.sync_status == 'running' %}inline{% else %}none{% endif %};"
         >
           {% csrf_token %}
           <button id="stop-sync-btn" class="rb-button rb-button--primary" type="submit">Stop Sync</button>
@@ -407,15 +407,15 @@
         noteLine.textContent = data.progress_note || "";
         const inProgress = data.status === "queued" || data.status === "running";
         progressWrap.classList.toggle("is-hidden", !inProgress);
+        const showStop = inProgress || Boolean(data.sync_locked);
         if (syncCanvasBtn) {
-          const locked = Boolean(data.sync_locked);
+          const locked = showStop;
           syncCanvasBtn.disabled = false;
           syncCanvasBtn.removeAttribute("title");
           if (syncStartForm) syncStartForm.style.display = locked ? "none" : "inline";
         }
         if (stopSyncBtn && syncStopForm) {
-          const locked = Boolean(data.sync_locked);
-          syncStopForm.style.display = locked ? "inline" : "none";
+          syncStopForm.style.display = showStop ? "inline" : "none";
           stopSyncBtn.disabled = Boolean(data.stop_requested);
           if (data.stop_requested) {
             stopSyncBtn.title = "Stop requested.";
