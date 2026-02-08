@@ -325,12 +325,16 @@
           <div class="sync-progress-track" aria-label="Report progress">
             <div id="report-progress-fill" class="sync-progress-fill" style="width:{% if active_report and active_report.total_assignments %}{% widthratio active_report.processed_assignments active_report.total_assignments 100 %}{% else %}0{% endif %}%"></div>
           </div>
-          {% if active_report %}
-            <form id="cancel-report-form" method="post" action="/canvas/reports/{{ active_report.id }}/cancel/" style="margin-top:10px;">
-              {% csrf_token %}
-              <button class="rb-button rb-button--ghost" type="submit">Cancel Report</button>
-            </form>
-          {% endif %}
+          <form
+            id="cancel-report-form"
+            method="post"
+            action="{% if active_report %}{{ active_report.cancel_url }}{% endif %}"
+            style="margin-top:10px;"
+            class="{% if not active_report %}is-hidden{% endif %}"
+          >
+            {% csrf_token %}
+            <button class="rb-button rb-button--ghost" type="submit">Cancel Report</button>
+          </form>
         </div>
       </div>
 
@@ -541,7 +545,8 @@
       const statusLine = document.getElementById("report-status-line");
       const assignmentLine = document.getElementById("report-assignment-line");
       const fill = document.getElementById("report-progress-fill");
-      if (!reportWrap || !titleLine || !statusLine || !assignmentLine || !fill) return;
+      const cancelForm = document.getElementById("cancel-report-form");
+      if (!reportWrap || !titleLine || !statusLine || !assignmentLine || !fill || !cancelForm) return;
       let pollTimer = null;
 
       function render(data) {
@@ -551,6 +556,11 @@
         fill.style.width = Math.max(0, Math.min(100, Number(data.percent || 0))) + "%";
         statusLine.textContent = kindLabel + " report #" + data.id + " — " + data.status + " (" + (data.processed_assignments || 0) + "/" + (data.total_assignments || 0) + ")";
         assignmentLine.textContent = data.current_assignment_name ? ("Processing: " + data.current_assignment_name) : "";
+        const fallbackCancelUrl = (data.kind === "staff_marking")
+          ? ("/canvas/staff-marking-reports/" + data.id + "/cancel/")
+          : ("/canvas/reports/" + data.id + "/cancel/");
+        cancelForm.action = data.cancel_url || fallbackCancelUrl;
+        cancelForm.classList.remove("is-hidden");
       }
 
       async function poll() {
@@ -564,6 +574,7 @@
           const data = await resp.json();
           if (!data.active) {
             reportWrap.classList.add("is-hidden");
+            cancelForm.classList.add("is-hidden");
             if (window.refreshReportsTable) {
               await window.refreshReportsTable();
             }

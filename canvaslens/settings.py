@@ -17,6 +17,16 @@ def _env_bool(name, default=False):
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name, default=0):
+    raw = os.getenv(name)
+    if raw is None:
+        return int(default)
+    try:
+        return int(raw.strip())
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def _unique(items):
     seen = set()
     ordered = []
@@ -163,6 +173,7 @@ if CSRF_COOKIE_SAMESITE == "None" and not CSRF_COOKIE_SECURE:
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/admin-dashboard/"
 LOGOUT_REDIRECT_URL = "/"
+REPORT_RETENTION_HOURS = max(1, _env_int("DJANGO_REPORT_RETENTION_HOURS", 24))
 
 # Celery
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

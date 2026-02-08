@@ -26,7 +26,8 @@ from .canvas_client import CanvasClient, CanvasClientError
 
 @shared_task
 def purge_expired_submission_reports():
-    cutoff = dj_timezone.now() - timedelta(hours=1)
+    retention_hours = max(1, int(getattr(settings, "REPORT_RETENTION_HOURS", 24)))
+    cutoff = dj_timezone.now() - timedelta(hours=retention_hours)
     deleted_submission_count, _ = CanvasSubmissionReport.objects.filter(created_at__lt=cutoff).exclude(
         status__in=["pending", "running"]
     ).delete()
@@ -1315,8 +1316,8 @@ def generate_submissions_report(report_id):
 
     try:
         for idx, assignment in enumerate(assignments, start=1):
-            report.refresh_from_db(fields=["cancel_requested"])
-            if report.cancel_requested:
+            report.refresh_from_db(fields=["cancel_requested", "status"])
+            if report.cancel_requested or report.status == "cancelled":
                 report.status = "cancelled"
                 report.completed_at = dj_timezone.now()
                 report.current_assignment_name = ""
@@ -1337,7 +1338,21 @@ def generate_submissions_report(report_id):
                 selected_rubric_rating_label_maps_for_assignment = _assignment_rubric_rating_label_maps(
                     assignment, selected_rubric_criterion
                 )
-            for submission in submissions or []:
+            for submission_idx, submission in enumerate(submissions or [], start=1):
+                if submission_idx % 25 == 0:
+                    report.refresh_from_db(fields=["cancel_requested", "status"])
+                    if report.cancel_requested or report.status == "cancelled":
+                        report.status = "cancelled"
+                        report.completed_at = dj_timezone.now()
+                        report.current_assignment_name = ""
+                        report.save(
+                            update_fields=[
+                                "status",
+                                "completed_at",
+                                "current_assignment_name",
+                            ]
+                        )
+                        return
                 user = submission.get("user") or {}
                 user_id = submission.get("user_id")
                 try:
@@ -1398,6 +1413,14 @@ def generate_submissions_report(report_id):
 
             report.processed_assignments = idx
             report.save(update_fields=["processed_assignments"])
+
+        report.refresh_from_db(fields=["cancel_requested", "status"])
+        if report.cancel_requested or report.status == "cancelled":
+            report.status = "cancelled"
+            report.completed_at = dj_timezone.now()
+            report.current_assignment_name = ""
+            report.save(update_fields=["status", "completed_at", "current_assignment_name"])
+            return
 
         report.status = "completed"
         report.completed_at = dj_timezone.now()
@@ -1481,8 +1504,8 @@ def generate_staff_marking_report(report_id):
 
     try:
         for idx, assignment in enumerate(assignments, start=1):
-            report.refresh_from_db(fields=["cancel_requested"])
-            if report.cancel_requested:
+            report.refresh_from_db(fields=["cancel_requested", "status"])
+            if report.cancel_requested or report.status == "cancelled":
                 report.status = "cancelled"
                 report.completed_at = dj_timezone.now()
                 report.current_assignment_name = ""
@@ -1497,7 +1520,21 @@ def generate_staff_marking_report(report_id):
             assignment_types.add(type_label)
             submissions = client.list_assignment_submissions(assignment.course.canvas_id, assignment.canvas_id)
 
-            for submission in submissions or []:
+            for submission_idx, submission in enumerate(submissions or [], start=1):
+                if submission_idx % 25 == 0:
+                    report.refresh_from_db(fields=["cancel_requested", "status"])
+                    if report.cancel_requested or report.status == "cancelled":
+                        report.status = "cancelled"
+                        report.completed_at = dj_timezone.now()
+                        report.current_assignment_name = ""
+                        report.save(
+                            update_fields=[
+                                "status",
+                                "completed_at",
+                                "current_assignment_name",
+                            ]
+                        )
+                        return
                 score = submission.get("score")
                 if score is None:
                     continue
@@ -1520,6 +1557,14 @@ def generate_staff_marking_report(report_id):
 
             report.processed_assignments = idx
             report.save(update_fields=["processed_assignments"])
+
+        report.refresh_from_db(fields=["cancel_requested", "status"])
+        if report.cancel_requested or report.status == "cancelled":
+            report.status = "cancelled"
+            report.completed_at = dj_timezone.now()
+            report.current_assignment_name = ""
+            report.save(update_fields=["status", "completed_at", "current_assignment_name"])
+            return
 
         sorted_types = sorted(assignment_types, key=lambda v: v.casefold())
         output = io.StringIO()

@@ -9,6 +9,7 @@ class StaffAccessMiddleware:
     EXEMPT_PATHS = {
         "/login",
         "/logout",
+        "/password/change",
         "/admin",
         "/static",
         "/embed/auth",
@@ -16,6 +17,7 @@ class StaffAccessMiddleware:
     EXEMPT_PREFIXES = (
         "/login/",
         "/logout/",
+        "/password/change/",
         "/admin/",
         "/static/",
         "/embed/auth/",
@@ -50,6 +52,10 @@ class StaffAccessMiddleware:
 
         profile = getattr(request.user, "canvas_subaccount_profile", None)
         if profile and profile.owner_id:
+            if getattr(profile, "must_reset_password", False):
+                next_path = request.get_full_path()
+                return redirect(f"/password/change/?{urlencode({'next': next_path})}")
+
             from directory.models import CanvasCredential
 
             owner_credential = CanvasCredential.objects.filter(user_id=profile.owner_id).first()

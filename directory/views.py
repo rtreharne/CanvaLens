@@ -7,6 +7,9 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
 from django.db import transaction
 from django.contrib.auth.models import User
 from django.core import signing
@@ -17,7 +20,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime, parse_date
 from datetime import datetime, time, timedelta
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from .canvas_client import CanvasClient, CanvasClientError
 from .models import (
@@ -179,7 +182,8 @@ def _course_name_query(value):
 
 
 def _purge_expired_submission_reports(user):
-    cutoff = timezone.now() - timedelta(hours=1)
+    retention_hours = max(1, int(getattr(settings, "REPORT_RETENTION_HOURS", 24)))
+    cutoff = timezone.now() - timedelta(hours=retention_hours)
     CanvasSubmissionReport.objects.filter(user=user, created_at__lt=cutoff).exclude(
         status__in=["pending", "running"]
     ).delete()
@@ -484,6 +488,46 @@ def embed_auth_consume(request):
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     return redirect(next_path)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def account_password_change(request):
+    fallback_next = "/canvas/assignments/"
+    next_path = _safe_next_path(
+        request.GET.get("next") or request.POST.get("next"),
+        fallback_next,
+    )
+    if next_path.startswith("/password/change"):
+        next_path = fallback_next
+
+    if request.method == "POST":
+        form = PasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            user = form.save()
+            update_session_auth_hash(request, user)
+
+            profile = getattr(user, "canvas_subaccount_profile", None)
+            if profile and profile.must_reset_password:
+                profile.must_reset_password = False
+                profile.save(update_fields=["must_reset_password", "updated_at"])
+
+            messages.success(request, "Password updated.")
+            return redirect(next_path)
+    else:
+        form = PasswordChangeForm(request.user)
+
+    profile = getattr(request.user, "canvas_subaccount_profile", None)
+    must_reset_password = bool(profile and profile.must_reset_password)
+    return render(
+        request,
+        "registration/password_change.html",
+        {
+            "form": form,
+            "next_path": next_path,
+            "must_reset_password": must_reset_password,
+        },
+    )
 
 
 @require_GET
@@ -855,10 +899,17 @@ def admin_subaccount_create(request):
         is_staff=False,
         is_active=True,
     )
-    CanvasSubAccount.objects.create(owner=request.user, user=sub_user)
+    CanvasSubAccount.objects.create(
+        owner=request.user,
+        user=sub_user,
+        must_reset_password=True,
+    )
     messages.success(
         request,
-        f"Created sub-account '{username}'. Temporary password: {password}",
+        (
+            f"Created sub-account '{username}'. Temporary password: {password}. "
+            "This account must change password on first sign-in."
+        ),
         extra_tags="subaccounts",
     )
     return redirect("admin_dashboard")
@@ -875,9 +926,15 @@ def admin_subaccount_reset_password(request, subaccount_id):
     new_password = _generate_memorable_password()
     subaccount.user.set_password(new_password)
     subaccount.user.save(update_fields=["password"])
+    subaccount.must_reset_password = True
+    subaccount.save(update_fields=["must_reset_password", "updated_at"])
     messages.success(
         request,
-        f"Reset password for '{subaccount.user.username}'. New temporary password: {new_password}",
+        (
+            f"Reset password for '{subaccount.user.username}'. "
+            f"New temporary password: {new_password}. "
+            "This account must change password on next sign-in."
+        ),
         extra_tags=f"subaccounts subuser_{subaccount.user.username}",
     )
     return redirect("admin_dashboard")
@@ -939,6 +996,7 @@ def canvas_assignments(request):
             "credential": credential,
             "reports": reports,
             "active_report": active_report,
+            "report_retention_hours": max(1, int(getattr(settings, "REPORT_RETENTION_HOURS", 24))),
             "can_access_admin": not _is_subaccount_user(request.user),
             "sync_locked": sync_locked,
         },
@@ -1329,7 +1387,12 @@ def canvas_reports_table(request):
     reports, _ = _reports_for_user(canvas_user)
     table_html = render_to_string(
         "directory/_canvas_reports_table.html",
-        {"reports": reports},
+        {
+            "reports": reports,
+            "report_retention_hours": max(
+                1, int(getattr(settings, "REPORT_RETENTION_HOURS", 24))
+            ),
+        },
         request=request,
     )
     return JsonResponse(
@@ -1379,6 +1442,7 @@ def canvas_reports_create(request):
                     "processed_assignments": report.processed_assignments,
                     "current_assignment_name": report.current_assignment_name or "",
                     "percent": 0,
+                    "cancel_url": f"/canvas/reports/{report.id}/cancel/",
                 },
             }
         )
@@ -1425,6 +1489,7 @@ def canvas_staff_marking_reports_create(request):
                     "processed_assignments": report.processed_assignments,
                     "current_assignment_name": report.current_assignment_name or "",
                     "percent": 0,
+                    "cancel_url": f"/canvas/staff-marking-reports/{report.id}/cancel/",
                 },
             }
         )
@@ -1479,16 +1544,52 @@ def _validate_isolated_assignment_filter(request, canvas_user, filters, *, is_aj
 def canvas_report_cancel(request, report_id):
     canvas_user = _effective_canvas_user(request.user)
     _purge_expired_submission_reports(canvas_user)
-    report = get_object_or_404(CanvasSubmissionReport, id=report_id, user=canvas_user)
-    if report.status in {"pending", "running"}:
+    active_kind, active_report = _active_report_objects_for_user(canvas_user)
+    submission_report = CanvasSubmissionReport.objects.filter(id=report_id, user=canvas_user).first()
+    staff_report = CanvasStaffMarkingReport.objects.filter(id=report_id, user=canvas_user).first()
+
+    ordered_candidates = []
+    if active_report and int(active_report.id) == int(report_id):
+        ordered_candidates.append((active_kind, active_report))
+    if submission_report:
+        ordered_candidates.append(("submissions", submission_report))
+    if staff_report:
+        ordered_candidates.append(("staff_marking", staff_report))
+
+    seen = set()
+    unique_candidates = []
+    for kind, report in ordered_candidates:
+        key = (kind, int(report.id))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append((kind, report))
+
+    for kind, report in unique_candidates:
+        if report.status not in {"pending", "running"}:
+            continue
         report.cancel_requested = True
-        if report.status == "pending":
-            report.status = "cancelled"
-            report.completed_at = timezone.now()
-            report.save(update_fields=["cancel_requested", "status", "completed_at"])
+        report.status = "cancelled"
+        report.completed_at = timezone.now()
+        report.current_assignment_name = ""
+        report.save(
+            update_fields=[
+                "cancel_requested",
+                "status",
+                "completed_at",
+                "current_assignment_name",
+            ]
+        )
+        if kind == "staff_marking":
+            messages.success(request, f"Cancelled staff marking report #{report.id}.")
         else:
-            report.save(update_fields=["cancel_requested"])
-        messages.success(request, f"Cancel requested for report #{report.id}.")
+            messages.success(request, f"Cancelled report #{report.id}.")
+        return redirect("canvas_assignments")
+
+    if submission_report or staff_report:
+        messages.info(request, "Report is not pending or running.")
+    else:
+        messages.error(request, "Report not found.")
     return redirect("canvas_assignments")
 
 
@@ -1545,6 +1646,11 @@ def canvas_report_progress(request):
             "current_assignment_name": report.current_assignment_name or "",
             "percent": percent,
             "cancel_requested": report.cancel_requested,
+            "cancel_url": (
+                f"/canvas/staff-marking-reports/{report.id}/cancel/"
+                if report_kind == "staff_marking"
+                else f"/canvas/reports/{report.id}/cancel/"
+            ),
         }
     )
 
@@ -1557,13 +1663,18 @@ def canvas_staff_marking_report_cancel(request, report_id):
     report = get_object_or_404(CanvasStaffMarkingReport, id=report_id, user=canvas_user)
     if report.status in {"pending", "running"}:
         report.cancel_requested = True
-        if report.status == "pending":
-            report.status = "cancelled"
-            report.completed_at = timezone.now()
-            report.save(update_fields=["cancel_requested", "status", "completed_at"])
-        else:
-            report.save(update_fields=["cancel_requested"])
-        messages.success(request, f"Cancel requested for staff marking report #{report.id}.")
+        report.status = "cancelled"
+        report.completed_at = timezone.now()
+        report.current_assignment_name = ""
+        report.save(
+            update_fields=[
+                "cancel_requested",
+                "status",
+                "completed_at",
+                "current_assignment_name",
+            ]
+        )
+        messages.success(request, f"Cancelled staff marking report #{report.id}.")
     return redirect("canvas_assignments")
 
 
