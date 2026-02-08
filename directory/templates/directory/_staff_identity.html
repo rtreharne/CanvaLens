@@ -1,0 +1,11 @@
+{% if staff_username %}
+  <div
+    aria-label="Signed in user"
+    title="Signed in as {{ staff_username }}"
+    style="margin-left:auto; color:#d8e0ef; font-size:0.78rem; font-weight:400; opacity:0.9;"
+  >
+    {{ staff_username }}
+  </div>
+{% else %}
+  <div style="margin-left:auto;"></div>
+{% endif %}

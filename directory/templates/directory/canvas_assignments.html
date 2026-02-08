@@ -108,7 +108,6 @@
       <a href="https://www.liverpool.ac.uk/" class="rb-header__global__home">
         <span class="sr-only">Home</span>
       </a>
-      <div style="margin-left:auto;"></div>
     </div>
     <div class="rb-header__section">
       <div class="rb-block-container">
@@ -150,6 +149,9 @@
 
       <div class="rb-card sync-progress-wrap">
         <div class="rb-card__inner">
+          {% if staff_username %}
+            <p>Logged in as {{ staff_username }}</p>
+          {% endif %}
           <p>Last sync: {{ credential.last_sync_at|default:"Never" }}</p>
         </div>
       </div>

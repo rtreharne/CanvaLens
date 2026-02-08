@@ -5,6 +5,14 @@ from django.shortcuts import redirect, render
 
 
 class StaffAccessMiddleware:
+    LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "::1"}
+    EXEMPT_PATHS = {
+        "/login",
+        "/logout",
+        "/admin",
+        "/static",
+        "/embed/auth",
+    }
     EXEMPT_PREFIXES = (
         "/login/",
         "/logout/",
@@ -18,12 +26,13 @@ class StaffAccessMiddleware:
 
     def __call__(self, request):
         path = request.path or "/"
-        if path.startswith(self.EXEMPT_PREFIXES):
+        if self._is_exempt_path(path):
             return self.get_response(request)
 
         if (
             getattr(settings, "REQUIRE_CANVAS_EMBED", True)
             and self._is_navigation_request(request)
+            and not self._is_localhost_request(request)
             and not self._is_embedded_request(request)
         ):
             return render(
@@ -52,6 +61,24 @@ class StaffAccessMiddleware:
                 )
 
         return self.get_response(request)
+
+    def _is_exempt_path(self, path):
+        if path in self.EXEMPT_PATHS:
+            return True
+        return path.startswith(self.EXEMPT_PREFIXES)
+
+    def _is_localhost_request(self, request):
+        try:
+            host = (request.get_host() or "").strip().lower()
+        except ValueError:
+            return False
+        if not host:
+            return False
+        if host.startswith("[") and "]" in host:
+            host = host[1 : host.index("]")]
+        else:
+            host = host.split(":", 1)[0]
+        return host in self.LOCALHOST_HOSTS
 
     @staticmethod
     def _is_embedded_request(request):
