@@ -18,6 +18,7 @@ from .models import (
     CanvasAssignment,
     CanvasAssignmentModerationReport,
     CanvasModerationAssignmentPreference,
+    CanvasStaffMarkingReport,
     CanvasSubmissionReport,
 )
 from .canvas_client import CanvasClient, CanvasClientError
@@ -26,10 +27,13 @@ from .canvas_client import CanvasClient, CanvasClientError
 @shared_task
 def purge_expired_submission_reports():
     cutoff = dj_timezone.now() - timedelta(hours=1)
-    deleted_count, _ = CanvasSubmissionReport.objects.filter(created_at__lt=cutoff).exclude(
+    deleted_submission_count, _ = CanvasSubmissionReport.objects.filter(created_at__lt=cutoff).exclude(
         status__in=["pending", "running"]
     ).delete()
-    return deleted_count
+    deleted_staff_marking_count, _ = CanvasStaffMarkingReport.objects.filter(created_at__lt=cutoff).exclude(
+        status__in=["pending", "running"]
+    ).delete()
+    return deleted_submission_count + deleted_staff_marking_count
 
 
 @shared_task
@@ -1339,6 +1343,152 @@ def generate_submissions_report(report_id):
 
             report.processed_assignments = idx
             report.save(update_fields=["processed_assignments"])
+
+        report.status = "completed"
+        report.completed_at = dj_timezone.now()
+        report.current_assignment_name = ""
+        report.csv_content = output.getvalue()
+        report.row_count = row_count
+        report.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "current_assignment_name",
+                "csv_content",
+                "row_count",
+            ]
+        )
+    except CanvasClientError as exc:
+        report.status = "failed"
+        report.error = str(exc)
+        report.completed_at = dj_timezone.now()
+        report.current_assignment_name = ""
+        report.save(update_fields=["status", "error", "completed_at", "current_assignment_name"])
+    except Exception as exc:
+        report.status = "failed"
+        report.error = str(exc)
+        report.completed_at = dj_timezone.now()
+        report.current_assignment_name = ""
+        report.save(update_fields=["status", "error", "completed_at", "current_assignment_name"])
+
+
+def _assignment_type_label(assignment):
+    submission_types = list((assignment.submission_types or []))
+    normalized = [str(value).strip() for value in submission_types if str(value).strip()]
+    if not normalized:
+        return "unknown"
+    return ", ".join(normalized)
+
+
+@shared_task
+def generate_staff_marking_report(report_id):
+    report = CanvasStaffMarkingReport.objects.select_related("user").filter(id=report_id).first()
+    if not report:
+        return
+
+    credential = CanvasCredential.objects.filter(user=report.user).first()
+    if not credential or not credential.token:
+        report.status = "failed"
+        report.error = "Canvas token not configured."
+        report.completed_at = dj_timezone.now()
+        report.save(update_fields=["status", "error", "completed_at"])
+        return
+
+    if report.cancel_requested:
+        report.status = "cancelled"
+        report.completed_at = dj_timezone.now()
+        report.save(update_fields=["status", "completed_at"])
+        return
+
+    report.status = "running"
+    report.started_at = dj_timezone.now()
+    report.error = ""
+    report.processed_assignments = 0
+    report.current_assignment_name = ""
+    report.save(
+        update_fields=[
+            "status",
+            "started_at",
+            "error",
+            "processed_assignments",
+            "current_assignment_name",
+        ]
+    )
+
+    client = CanvasClient(settings.CANVAS_URL, credential.token)
+    assignments = _filtered_assignments_for_report(report.user_id, report.filters)
+    report.total_assignments = len(assignments)
+    report.save(update_fields=["total_assignments"])
+
+    grader_name_cache = {}
+    counts_by_grader = defaultdict(lambda: defaultdict(int))
+    assignment_types = set()
+
+    try:
+        for idx, assignment in enumerate(assignments, start=1):
+            report.refresh_from_db(fields=["cancel_requested"])
+            if report.cancel_requested:
+                report.status = "cancelled"
+                report.completed_at = dj_timezone.now()
+                report.current_assignment_name = ""
+                report.save(update_fields=["status", "completed_at", "current_assignment_name"])
+                return
+
+            report.current_assignment_name = assignment.name[:255]
+            report.processed_assignments = idx - 1
+            report.save(update_fields=["current_assignment_name", "processed_assignments"])
+
+            type_label = _assignment_type_label(assignment)
+            assignment_types.add(type_label)
+            submissions = client.list_assignment_submissions(assignment.course.canvas_id, assignment.canvas_id)
+
+            for submission in submissions or []:
+                score = submission.get("score")
+                if score is None:
+                    continue
+
+                grader_id = submission.get("grader_id")
+                grader_key = str(grader_id) if grader_id is not None else ""
+                if grader_key not in grader_name_cache:
+                    if not grader_key:
+                        grader_name_cache[grader_key] = "Unassigned"
+                    else:
+                        try:
+                            profile = client.get_user_profile(grader_key)
+                            grader_name_cache[grader_key] = _format_marker_name(
+                                profile.get("name") or profile.get("short_name") or f"User {grader_key}",
+                                profile.get("sortable_name") or "",
+                            )
+                        except CanvasClientError:
+                            grader_name_cache[grader_key] = _format_marker_name(f"User {grader_key}")
+                counts_by_grader[grader_key][type_label] += 1
+
+            report.processed_assignments = idx
+            report.save(update_fields=["processed_assignments"])
+
+        sorted_types = sorted(assignment_types, key=lambda v: v.casefold())
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["grader_id", "grader_name", *sorted_types, "total_marked_submissions"])
+
+        row_count = 0
+        sort_rows = []
+        for grader_key, type_counts in counts_by_grader.items():
+            grader_name = grader_name_cache.get(grader_key) or "Unknown"
+            total = sum(int(type_counts.get(t) or 0) for t in sorted_types)
+            sort_rows.append((grader_name, grader_key, type_counts, total))
+        sort_rows.sort(key=lambda item: (item[0].casefold(), item[1]))
+
+        for grader_name, grader_key, type_counts, total in sort_rows:
+            writer.writerow(
+                [
+                    grader_key,
+                    grader_name,
+                    *[int(type_counts.get(t) or 0) for t in sorted_types],
+                    total,
+                ]
+            )
+            row_count += 1
 
         report.status = "completed"
         report.completed_at = dj_timezone.now()

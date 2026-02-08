@@ -26,11 +26,13 @@ from .models import (
     CanvasSubAccount,
     CanvasCourse,
     CanvasCredential,
+    CanvasStaffMarkingReport,
     CanvasSubmissionReport,
 )
 from .tasks import (
     _build_checked_submissions,
     generate_assignment_moderation_report,
+    generate_staff_marking_report,
     generate_submissions_report,
     sync_canvas_for_user,
 )
@@ -171,6 +173,9 @@ def _purge_expired_submission_reports(user):
     CanvasSubmissionReport.objects.filter(user=user, created_at__lt=cutoff).exclude(
         status__in=["pending", "running"]
     ).delete()
+    CanvasStaffMarkingReport.objects.filter(user=user, created_at__lt=cutoff).exclude(
+        status__in=["pending", "running"]
+    ).delete()
 
 
 def _is_ajax_request(request):
@@ -185,10 +190,72 @@ def _safe_next_path(value, fallback="/"):
 
 
 def _reports_for_user(user):
-    reports_qs = CanvasSubmissionReport.objects.filter(user=user).order_by("-created_at")
-    active_report = reports_qs.filter(status__in=["pending", "running"]).first()
-    reports = list(reports_qs[:20])
+    submission_reports = list(
+        CanvasSubmissionReport.objects.filter(user=user).order_by("-created_at")[:20]
+    )
+    staff_marking_reports = list(
+        CanvasStaffMarkingReport.objects.filter(user=user).order_by("-created_at")[:20]
+    )
+    reports = [_serialize_submission_report_for_table(report) for report in submission_reports]
+    reports.extend(_serialize_staff_marking_report_for_table(report) for report in staff_marking_reports)
+    reports.sort(key=lambda row: row["created_at"], reverse=True)
+    reports = reports[:20]
+    active_report = next((row for row in reports if row["status"] in {"pending", "running"}), None)
     return reports, active_report
+
+
+def _serialize_submission_report_for_table(report):
+    return {
+        "id": report.id,
+        "kind": "submissions",
+        "kind_label": "Submissions",
+        "status": report.status,
+        "created_at": report.created_at,
+        "completed_at": report.completed_at,
+        "row_count": report.row_count,
+        "total_assignments": int(report.total_assignments or 0),
+        "processed_assignments": int(report.processed_assignments or 0),
+        "current_assignment_name": report.current_assignment_name or "",
+        "cancel_requested": bool(report.cancel_requested),
+        "download_url": f"/canvas/reports/{report.id}/download/",
+        "cancel_url": f"/canvas/reports/{report.id}/cancel/",
+        "delete_url": f"/canvas/reports/{report.id}/delete/",
+    }
+
+
+def _serialize_staff_marking_report_for_table(report):
+    return {
+        "id": report.id,
+        "kind": "staff_marking",
+        "kind_label": "Staff marking",
+        "status": report.status,
+        "created_at": report.created_at,
+        "completed_at": report.completed_at,
+        "row_count": report.row_count,
+        "total_assignments": int(report.total_assignments or 0),
+        "processed_assignments": int(report.processed_assignments or 0),
+        "current_assignment_name": report.current_assignment_name or "",
+        "cancel_requested": bool(report.cancel_requested),
+        "download_url": f"/canvas/staff-marking-reports/{report.id}/download/",
+        "cancel_url": f"/canvas/staff-marking-reports/{report.id}/cancel/",
+        "delete_url": f"/canvas/staff-marking-reports/{report.id}/delete/",
+    }
+
+
+def _active_report_objects_for_user(user):
+    active_submission = CanvasSubmissionReport.objects.filter(
+        user=user, status__in=["pending", "running"]
+    ).order_by("-created_at").first()
+    active_staff_marking = CanvasStaffMarkingReport.objects.filter(
+        user=user, status__in=["pending", "running"]
+    ).order_by("-created_at").first()
+    candidates = [item for item in [active_submission, active_staff_marking] if item is not None]
+    if not candidates:
+        return None, None
+    active_obj = max(candidates, key=lambda obj: obj.created_at)
+    if isinstance(active_obj, CanvasSubmissionReport):
+        return "submissions", active_obj
+    return "staff_marking", active_obj
 
 
 def _rubric_criterion_names_from_raw(raw_data):
@@ -581,6 +648,7 @@ def canvas_sync_progress(request):
 def canvas_burn_everything(request):
     user = request.user
     deleted_submission_reports, _ = CanvasSubmissionReport.objects.filter(user=user).delete()
+    deleted_staff_marking_reports, _ = CanvasStaffMarkingReport.objects.filter(user=user).delete()
     deleted_moderation_reports, _ = CanvasAssignmentModerationReport.objects.filter(user=user).delete()
     deleted_reviews, _ = CanvasModerationSubmissionReview.objects.filter(user=user).delete()
     deleted_preferences, _ = CanvasModerationAssignmentPreference.objects.filter(user=user).delete()
@@ -592,6 +660,7 @@ def canvas_burn_everything(request):
         f"Deleted {deleted_courses} courses, "
         f"{deleted_assignments} assignments, "
         f"{deleted_submission_reports} submission reports, "
+        f"{deleted_staff_marking_reports} staff marking reports, "
         f"{deleted_moderation_reports} moderation reports, "
         f"{deleted_reviews} moderation review rows, "
         f"and {deleted_preferences} moderation preference rows for your account.",
@@ -1130,17 +1199,94 @@ def canvas_reports_create(request):
     canvas_user = _effective_canvas_user(request.user)
     _purge_expired_submission_reports(canvas_user)
     is_ajax = _is_ajax_request(request)
-    active_exists = CanvasSubmissionReport.objects.filter(
-        user=canvas_user, status__in=["pending", "running"]
-    ).exists()
-    if active_exists:
+    active_kind, _ = _active_report_objects_for_user(canvas_user)
+    if active_kind:
         error_msg = "A report is already running or queued. Wait for it to finish first."
         if is_ajax:
             return JsonResponse({"ok": False, "error": error_msg}, status=409)
         messages.error(request, error_msg)
         return redirect("canvas_assignments")
 
-    filters = {
+    filters = _report_filters_from_post(request)
+    invalid_response = _validate_isolated_assignment_filter(
+        request, canvas_user, filters, is_ajax=is_ajax
+    )
+    if invalid_response is not None:
+        return invalid_response
+    report = CanvasSubmissionReport.objects.create(
+        user=canvas_user,
+        status="pending",
+        filters=filters,
+    )
+    generate_submissions_report.delay(report.id)
+    if is_ajax:
+        return JsonResponse(
+            {
+                "ok": True,
+                "report": {
+                    "id": report.id,
+                    "kind": "submissions",
+                    "kind_label": "Submissions",
+                    "status": report.status,
+                    "total_assignments": report.total_assignments,
+                    "processed_assignments": report.processed_assignments,
+                    "current_assignment_name": report.current_assignment_name or "",
+                    "percent": 0,
+                },
+            }
+        )
+    messages.success(request, f"Report #{report.id} queued.")
+    return redirect("canvas_assignments")
+
+
+@require_POST
+@app_user_required
+def canvas_staff_marking_reports_create(request):
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    is_ajax = _is_ajax_request(request)
+    active_kind, _ = _active_report_objects_for_user(canvas_user)
+    if active_kind:
+        error_msg = "A report is already running or queued. Wait for it to finish first."
+        if is_ajax:
+            return JsonResponse({"ok": False, "error": error_msg}, status=409)
+        messages.error(request, error_msg)
+        return redirect("canvas_assignments")
+
+    filters = _report_filters_from_post(request)
+    invalid_response = _validate_isolated_assignment_filter(
+        request, canvas_user, filters, is_ajax=is_ajax
+    )
+    if invalid_response is not None:
+        return invalid_response
+    report = CanvasStaffMarkingReport.objects.create(
+        user=canvas_user,
+        status="pending",
+        filters=filters,
+    )
+    generate_staff_marking_report.delay(report.id)
+    if is_ajax:
+        return JsonResponse(
+            {
+                "ok": True,
+                "report": {
+                    "id": report.id,
+                    "kind": "staff_marking",
+                    "kind_label": "Staff marking",
+                    "status": report.status,
+                    "total_assignments": report.total_assignments,
+                    "processed_assignments": report.processed_assignments,
+                    "current_assignment_name": report.current_assignment_name or "",
+                    "percent": 0,
+                },
+            }
+        )
+    messages.success(request, f"Staff marking report #{report.id} queued.")
+    return redirect("canvas_assignments")
+
+
+def _report_filters_from_post(request):
+    return {
         "course": (request.POST.get("course") or "").strip(),
         "course_name": (request.POST.get("course_name") or "").strip(),
         "assignment_type": (request.POST.get("assignment_type") or "").strip(),
@@ -1152,6 +1298,9 @@ def canvas_reports_create(request):
         "date_to": (request.POST.get("date_to") or "").strip(),
         "isolated_assignment_id": (request.POST.get("isolated_assignment_id") or "").strip(),
     }
+
+
+def _validate_isolated_assignment_filter(request, canvas_user, filters, *, is_ajax=False):
     isolated_assignment_id_raw = filters.get("isolated_assignment_id") or ""
     if isolated_assignment_id_raw:
         try:
@@ -1175,28 +1324,7 @@ def canvas_reports_create(request):
                 return JsonResponse({"ok": False, "error": error_msg}, status=400)
             messages.error(request, error_msg)
             return redirect("canvas_assignments")
-    report = CanvasSubmissionReport.objects.create(
-        user=canvas_user,
-        status="pending",
-        filters=filters,
-    )
-    generate_submissions_report.delay(report.id)
-    if is_ajax:
-        return JsonResponse(
-            {
-                "ok": True,
-                "report": {
-                    "id": report.id,
-                    "status": report.status,
-                    "total_assignments": report.total_assignments,
-                    "processed_assignments": report.processed_assignments,
-                    "current_assignment_name": report.current_assignment_name or "",
-                    "percent": 0,
-                },
-            }
-        )
-    messages.success(request, f"Report #{report.id} queued.")
-    return redirect("canvas_assignments")
+    return None
 
 
 @require_POST
@@ -1250,10 +1378,8 @@ def canvas_report_download(request, report_id):
 def canvas_report_progress(request):
     canvas_user = _effective_canvas_user(request.user)
     _purge_expired_submission_reports(canvas_user)
-    report = CanvasSubmissionReport.objects.filter(
-        user=canvas_user, status__in=["pending", "running"]
-    ).order_by("-created_at").first()
-    if not report:
+    report_kind, report = _active_report_objects_for_user(canvas_user)
+    if report is None:
         return JsonResponse({"active": False})
     total = max(int(report.total_assignments or 0), 0)
     processed = max(int(report.processed_assignments or 0), 0)
@@ -1264,6 +1390,8 @@ def canvas_report_progress(request):
         {
             "active": True,
             "id": report.id,
+            "kind": report_kind,
+            "kind_label": "Staff marking" if report_kind == "staff_marking" else "Submissions",
             "status": report.status,
             "total_assignments": total,
             "processed_assignments": processed,
@@ -1272,3 +1400,52 @@ def canvas_report_progress(request):
             "cancel_requested": report.cancel_requested,
         }
     )
+
+
+@require_POST
+@app_user_required
+def canvas_staff_marking_report_cancel(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    report = get_object_or_404(CanvasStaffMarkingReport, id=report_id, user=canvas_user)
+    if report.status in {"pending", "running"}:
+        report.cancel_requested = True
+        if report.status == "pending":
+            report.status = "cancelled"
+            report.completed_at = timezone.now()
+            report.save(update_fields=["cancel_requested", "status", "completed_at"])
+        else:
+            report.save(update_fields=["cancel_requested"])
+        messages.success(request, f"Cancel requested for staff marking report #{report.id}.")
+    return redirect("canvas_assignments")
+
+
+@require_POST
+@app_user_required
+def canvas_staff_marking_report_delete(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    report = get_object_or_404(CanvasStaffMarkingReport, id=report_id, user=canvas_user)
+    if report.status in {"pending", "running"}:
+        messages.error(
+            request,
+            f"Staff marking report #{report.id} is still {report.status}; cancel it first.",
+        )
+        return redirect("canvas_assignments")
+    report.delete()
+    messages.success(request, f"Deleted staff marking report #{report_id}.")
+    return redirect("canvas_assignments")
+
+
+@require_GET
+@app_user_required
+def canvas_staff_marking_report_download(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    _purge_expired_submission_reports(canvas_user)
+    report = get_object_or_404(CanvasStaffMarkingReport, id=report_id, user=canvas_user)
+    if report.status != "completed" or not report.csv_content:
+        return HttpResponse("Report is not ready.", status=400)
+
+    response = HttpResponse(report.csv_content, content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="staff-marking-report-{report.id}.csv"'
+    return response

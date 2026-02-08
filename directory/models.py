@@ -148,6 +148,36 @@ class CanvasSubmissionReport(models.Model):
         return f"Report {self.id} ({self.status})"
 
 
+class CanvasStaffMarkingReport(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("cancelled", "Cancelled"),
+        ("failed", "Failed"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="canvas_staff_marking_reports")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="pending")
+    filters = models.JSONField(default=dict, blank=True)
+    total_assignments = models.IntegerField(default=0)
+    processed_assignments = models.IntegerField(default=0)
+    current_assignment_name = models.CharField(max_length=255, blank=True)
+    row_count = models.IntegerField(default=0)
+    csv_content = models.TextField(blank=True)
+    cancel_requested = models.BooleanField(default=False)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"Staff marking report {self.id} ({self.status})"
+
+
 class CanvasAssignmentModerationReport(models.Model):
     STATUS_CHOICES = [
         ("pending", "Pending"),

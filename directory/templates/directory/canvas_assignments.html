@@ -244,9 +244,23 @@
               <button class="rb-button rb-button--primary" type="submit">Apply filters</button>
               <a id="clear-filters-btn" class="rb-button rb-button--ghost {% if not has_active_filters %}is-hidden{% endif %}" href="/canvas/assignments/">Clear filters</a>
               <button id="create-report-btn" class="rb-button rb-button--secondary" type="button">Create Submissions Report</button>
+              <button id="create-staff-marking-report-btn" class="rb-button rb-button--secondary" type="button">Create Staff Marking Report</button>
             </div>
           </form>
           <form id="create-report-form" method="post" action="/canvas/reports/create/" class="is-hidden">
+            {% csrf_token %}
+            <input type="hidden" name="course" />
+            <input type="hidden" name="course_name" />
+            <input type="hidden" name="assignment_type" />
+            <input type="hidden" name="rubric_criterion" />
+            <input type="hidden" name="enrolled" />
+            <input type="hidden" name="needs_grading" />
+            <input type="hidden" name="assignment_name" />
+            <input type="hidden" name="date_from" />
+            <input type="hidden" name="date_to" />
+            <input type="hidden" name="isolated_assignment_id" />
+          </form>
+          <form id="create-staff-marking-report-form" method="post" action="/canvas/staff-marking-reports/create/" class="is-hidden">
             {% csrf_token %}
             <input type="hidden" name="course" />
             <input type="hidden" name="course_name" />
@@ -264,10 +278,16 @@
 
       <div id="report-progress-wrap" class="rb-card sync-progress-wrap {% if not active_report %}is-hidden{% endif %}">
         <div class="rb-card__inner">
-          <h3 class="rb-card__title">Submissions Report Progress</h3>
+          <h3 id="report-progress-title" class="rb-card__title">
+            {% if active_report %}
+              {{ active_report.kind_label }} Report Progress
+            {% else %}
+              Report Progress
+            {% endif %}
+          </h3>
           <p id="report-status-line">
             {% if active_report %}
-              Report #{{ active_report.id }} — {{ active_report.status }} ({{ active_report.processed_assignments }}/{{ active_report.total_assignments }})
+              {{ active_report.kind_label }} report #{{ active_report.id }} — {{ active_report.status }} ({{ active_report.processed_assignments }}/{{ active_report.total_assignments }})
             {% endif %}
           </p>
           <p id="report-assignment-line">
@@ -391,27 +411,29 @@
     })();
 
     (function () {
-      const createBtn = document.getElementById("create-report-btn");
-      const createForm = document.getElementById("create-report-form");
+      const createSubmissionsBtn = document.getElementById("create-report-btn");
+      const createSubmissionsForm = document.getElementById("create-report-form");
+      const createStaffBtn = document.getElementById("create-staff-marking-report-btn");
+      const createStaffForm = document.getElementById("create-staff-marking-report-form");
       const filtersForm = document.getElementById("filters-form");
-      if (!createBtn || !createForm || !filtersForm) return;
+      if (!filtersForm) return;
 
-      createBtn.addEventListener("click", async function () {
-        if (createBtn.disabled) return;
-        createBtn.disabled = true;
-        const originalLabel = createBtn.textContent;
-        createBtn.textContent = "Queueing...";
+      async function queueReport(button, form) {
+        if (!button || !form || button.disabled) return;
+        button.disabled = true;
+        const originalLabel = button.textContent;
+        button.textContent = "Queueing...";
         const filterData = new FormData(filtersForm);
         const payload = new URLSearchParams();
-        createForm.querySelectorAll("input[name]").forEach((input) => {
+        form.querySelectorAll("input[name]").forEach((input) => {
           if (input.name === "csrfmiddlewaretoken") return;
           payload.set(input.name, filterData.get(input.name) || "");
         });
         payload.set("isolated_assignment_id", window.canvasIsolatedAssignmentId || "");
-        const csrf = createForm.querySelector("input[name='csrfmiddlewaretoken']");
+        const csrf = form.querySelector("input[name='csrfmiddlewaretoken']");
 
         try {
-          const resp = await fetch(createForm.action, {
+          const resp = await fetch(form.action, {
             method: "POST",
             credentials: "same-origin",
             headers: {
@@ -435,24 +457,38 @@
         } catch (err) {
           alert("Could not queue report.");
         } finally {
-          createBtn.disabled = false;
-          createBtn.textContent = originalLabel;
+          button.disabled = false;
+          button.textContent = originalLabel;
         }
-      });
+      }
+
+      if (createSubmissionsBtn && createSubmissionsForm) {
+        createSubmissionsBtn.addEventListener("click", function () {
+          queueReport(createSubmissionsBtn, createSubmissionsForm);
+        });
+      }
+      if (createStaffBtn && createStaffForm) {
+        createStaffBtn.addEventListener("click", function () {
+          queueReport(createStaffBtn, createStaffForm);
+        });
+      }
     })();
 
     (function () {
       const reportWrap = document.getElementById("report-progress-wrap");
+      const titleLine = document.getElementById("report-progress-title");
       const statusLine = document.getElementById("report-status-line");
       const assignmentLine = document.getElementById("report-assignment-line");
       const fill = document.getElementById("report-progress-fill");
-      if (!reportWrap || !statusLine || !assignmentLine || !fill) return;
+      if (!reportWrap || !titleLine || !statusLine || !assignmentLine || !fill) return;
       let pollTimer = null;
 
       function render(data) {
+        const kindLabel = data.kind_label || "Report";
         reportWrap.classList.remove("is-hidden");
+        titleLine.textContent = kindLabel + " Report Progress";
         fill.style.width = Math.max(0, Math.min(100, Number(data.percent || 0))) + "%";
-        statusLine.textContent = "Report #" + data.id + " — " + data.status + " (" + (data.processed_assignments || 0) + "/" + (data.total_assignments || 0) + ")";
+        statusLine.textContent = kindLabel + " report #" + data.id + " — " + data.status + " (" + (data.processed_assignments || 0) + "/" + (data.total_assignments || 0) + ")";
         assignmentLine.textContent = data.current_assignment_name ? ("Processing: " + data.current_assignment_name) : "";
       }
 

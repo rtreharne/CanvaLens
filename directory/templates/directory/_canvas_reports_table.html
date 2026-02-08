@@ -7,6 +7,7 @@
           <thead>
             <tr>
               <th>ID</th>
+              <th>Type</th>
               <th>Status</th>
               <th>Created</th>
               <th>Completed</th>
@@ -18,22 +19,23 @@
             {% for report in reports %}
               <tr>
                 <td>#{{ report.id }}</td>
+                <td>{{ report.kind_label }}</td>
                 <td>{{ report.status }}</td>
                 <td>{{ report.created_at }}</td>
                 <td>{{ report.completed_at|default:"—" }}</td>
                 <td>{{ report.row_count }}</td>
                 <td>
                   {% if report.status == "completed" %}
-                    <a class="rb-button rb-button--ghost" href="/canvas/reports/{{ report.id }}/download/">Download</a>
+                    <a class="rb-button rb-button--ghost" href="{{ report.download_url }}">Download</a>
                   {% elif report.status == "pending" or report.status == "running" %}
-                    <form method="post" action="/canvas/reports/{{ report.id }}/cancel/" style="display:inline;">
+                    <form method="post" action="{{ report.cancel_url }}" style="display:inline;">
                       {% csrf_token %}
                       <button class="rb-button rb-button--ghost" type="submit">Cancel</button>
                     </form>
                   {% else %}
                     —
                   {% endif %}
-                  <form method="post" action="/canvas/reports/{{ report.id }}/delete/" style="display:inline;">
+                  <form method="post" action="{{ report.delete_url }}" style="display:inline;">
                     {% csrf_token %}
                     <button class="rb-button rb-button--ghost" type="submit">Delete</button>
                   </form>

@@ -66,8 +66,28 @@ urlpatterns = [
     ),
     path("canvas/reports/table/", views.canvas_reports_table, name="canvas_reports_table"),
     path("canvas/reports/create/", views.canvas_reports_create, name="canvas_reports_create"),
+    path(
+        "canvas/staff-marking-reports/create/",
+        views.canvas_staff_marking_reports_create,
+        name="canvas_staff_marking_reports_create",
+    ),
     path("canvas/reports/progress/", views.canvas_report_progress, name="canvas_report_progress"),
     path("canvas/reports/<int:report_id>/cancel/", views.canvas_report_cancel, name="canvas_report_cancel"),
     path("canvas/reports/<int:report_id>/delete/", views.canvas_report_delete, name="canvas_report_delete"),
     path("canvas/reports/<int:report_id>/download/", views.canvas_report_download, name="canvas_report_download"),
+    path(
+        "canvas/staff-marking-reports/<int:report_id>/cancel/",
+        views.canvas_staff_marking_report_cancel,
+        name="canvas_staff_marking_report_cancel",
+    ),
+    path(
+        "canvas/staff-marking-reports/<int:report_id>/delete/",
+        views.canvas_staff_marking_report_delete,
+        name="canvas_staff_marking_report_delete",
+    ),
+    path(
+        "canvas/staff-marking-reports/<int:report_id>/download/",
+        views.canvas_staff_marking_report_download,
+        name="canvas_staff_marking_report_download",
+    ),
 ]

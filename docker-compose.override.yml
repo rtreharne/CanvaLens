@@ -1,10 +1,10 @@
 services:
   web:
-    command: python manage.py runserver 0.0.0.0:8000
+    command: python manage.py runserver 0.0.0.0:8000 --insecure
     volumes:
       - .:/app
     environment:
-      DJANGO_DEBUG: "1"
+      DJANGO_DEBUG: "0"
 
   worker:
     volumes:
