@@ -141,6 +141,17 @@
             Sync Canvas
           </button>
         </form>
+        <form id="kick-sync-form" method="post" action="/canvas/sync/kick/" style="display:inline;">
+          {% csrf_token %}
+          <button
+            id="kick-sync-btn"
+            class="rb-button rb-button--ghost"
+            type="submit"
+            {% if not sync_locked %}disabled title="Only needed when a sync appears stuck."{% endif %}
+          >
+            Give it a kick
+          </button>
+        </form>
         <form method="post" action="/logout/" style="display:inline;">
           {% csrf_token %}
           <button class="rb-button rb-button--ghost" type="submit">Logout</button>
@@ -348,8 +359,21 @@
       const statusLine = document.getElementById("sync-status-line");
       const courseLine = document.getElementById("sync-course-line");
       const syncCanvasBtn = document.getElementById("sync-canvas-btn");
+      const kickSyncBtn = document.getElementById("kick-sync-btn");
+      const kickSyncForm = document.getElementById("kick-sync-form");
       if (!progressWrap || !fill || !statusLine || !courseLine) return;
       let pollTimer = null;
+
+      if (kickSyncForm) {
+        kickSyncForm.addEventListener("submit", function (event) {
+          const proceed = window.confirm(
+            "This will force-reset any queued/running sync lock and start a fresh sync. Continue?"
+          );
+          if (!proceed) {
+            event.preventDefault();
+          }
+        });
+      }
 
       function render(data) {
         const pct = Math.max(0, Math.min(100, Number(data.percent || 0)));
@@ -371,6 +395,15 @@
             syncCanvasBtn.title = "A sync is already running for this account group.";
           } else {
             syncCanvasBtn.removeAttribute("title");
+          }
+        }
+        if (kickSyncBtn) {
+          const locked = Boolean(data.sync_locked);
+          kickSyncBtn.disabled = !locked;
+          if (locked) {
+            kickSyncBtn.removeAttribute("title");
+          } else {
+            kickSyncBtn.title = "Only needed when a sync appears stuck.";
           }
         }
         return inProgress;

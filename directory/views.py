@@ -73,7 +73,7 @@ def _effective_canvas_user(user):
     return user
 
 
-def _related_sync_in_progress(user):
+def _related_canvas_user_ids(user):
     related_user_ids = {user.id}
     profile = getattr(user, "canvas_subaccount_profile", None)
     if profile and profile.owner_id:
@@ -83,6 +83,11 @@ def _related_sync_in_progress(user):
     else:
         sub_ids = CanvasSubAccount.objects.filter(owner_id=user.id).values_list("user_id", flat=True)
         related_user_ids.update(sub_ids)
+    return related_user_ids
+
+
+def _related_sync_in_progress(user):
+    related_user_ids = _related_canvas_user_ids(user)
     return CanvasCredential.objects.filter(
         user_id__in=related_user_ids,
         sync_status__in=["queued", "running"],
@@ -569,6 +574,57 @@ def canvas_sync(request):
         ]
     )
     sync_canvas_for_user.delay(canvas_user.id)
+    return redirect("canvas_assignments")
+
+
+@require_POST
+@app_user_required
+def canvas_sync_kick(request):
+    canvas_user = _effective_canvas_user(request.user)
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
+    if not credential.token:
+        messages.error(request, "Add and validate your Canvas token first.")
+        return _admin_or_assignments_redirect(request)
+
+    now = timezone.now()
+    related_user_ids = _related_canvas_user_ids(request.user)
+    reset_count = (
+        CanvasCredential.objects.filter(
+            user_id__in=related_user_ids,
+            sync_status__in=["queued", "running"],
+        )
+        .exclude(user_id=canvas_user.id)
+        .update(
+            sync_status="error",
+            sync_total_courses=0,
+            sync_processed_courses=0,
+            sync_current_course_name="",
+            last_error="Sync was manually restarted from the UI.",
+            updated_at=now,
+        )
+    )
+
+    credential.sync_status = "queued"
+    credential.sync_total_courses = 0
+    credential.sync_processed_courses = 0
+    credential.sync_current_course_name = ""
+    credential.last_error = ""
+    credential.save(
+        update_fields=[
+            "sync_status",
+            "sync_total_courses",
+            "sync_processed_courses",
+            "sync_current_course_name",
+            "last_error",
+            "updated_at",
+        ]
+    )
+    sync_canvas_for_user.delay(canvas_user.id)
+
+    if reset_count:
+        messages.success(request, f"Sent a sync restart and reset {reset_count} stuck sync lock(s).")
+    else:
+        messages.success(request, "Sent a sync restart.")
     return redirect("canvas_assignments")
 
 

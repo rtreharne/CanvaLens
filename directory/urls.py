@@ -27,6 +27,7 @@ urlpatterns = [
     path("canvas/sync-source/save/", views.canvas_sync_source_save, name="canvas_sync_source_save"),
     path("canvas/sync-start/save/", views.canvas_sync_start_save, name="canvas_sync_start_save"),
     path("canvas/sync/", views.canvas_sync, name="canvas_sync"),
+    path("canvas/sync/kick/", views.canvas_sync_kick, name="canvas_sync_kick"),
     path("canvas/sync/progress/", views.canvas_sync_progress, name="canvas_sync_progress"),
     path(
         "canvas/subaccounts/maintenance/toggle/",
