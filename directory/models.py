@@ -64,6 +64,8 @@ class CanvasCredential(models.Model):
     sync_total_courses = models.IntegerField(default=0)
     sync_processed_courses = models.IntegerField(default=0)
     sync_current_course_name = models.CharField(max_length=255, blank=True)
+    sync_progress_note = models.CharField(max_length=255, blank=True)
+    sync_stop_requested = models.BooleanField(default=False)
     last_sync_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)

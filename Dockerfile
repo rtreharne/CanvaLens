@@ -16,4 +16,5 @@ COPY . /app/
 
 ENV DJANGO_SETTINGS_MODULE=canvaslens.settings
 
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
 CMD ["gunicorn", "canvaslens.wsgi:application", "-b", "0.0.0.0:8000"]

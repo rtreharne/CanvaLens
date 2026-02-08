@@ -562,6 +562,8 @@ def canvas_sync(request):
     credential.sync_total_courses = 0
     credential.sync_processed_courses = 0
     credential.sync_current_course_name = ""
+    credential.sync_progress_note = ""
+    credential.sync_stop_requested = False
     credential.last_error = ""
     credential.save(
         update_fields=[
@@ -569,6 +571,8 @@ def canvas_sync(request):
             "sync_total_courses",
             "sync_processed_courses",
             "sync_current_course_name",
+            "sync_progress_note",
+            "sync_stop_requested",
             "last_error",
             "updated_at",
         ]
@@ -599,6 +603,8 @@ def canvas_sync_kick(request):
             sync_total_courses=0,
             sync_processed_courses=0,
             sync_current_course_name="",
+            sync_progress_note="",
+            sync_stop_requested=False,
             last_error="Sync was manually restarted from the UI.",
             updated_at=now,
         )
@@ -608,6 +614,8 @@ def canvas_sync_kick(request):
     credential.sync_total_courses = 0
     credential.sync_processed_courses = 0
     credential.sync_current_course_name = ""
+    credential.sync_progress_note = ""
+    credential.sync_stop_requested = False
     credential.last_error = ""
     credential.save(
         update_fields=[
@@ -615,6 +623,8 @@ def canvas_sync_kick(request):
             "sync_total_courses",
             "sync_processed_courses",
             "sync_current_course_name",
+            "sync_progress_note",
+            "sync_stop_requested",
             "last_error",
             "updated_at",
         ]
@@ -625,6 +635,21 @@ def canvas_sync_kick(request):
         messages.success(request, f"Sent a sync restart and reset {reset_count} stuck sync lock(s).")
     else:
         messages.success(request, "Sent a sync restart.")
+    return redirect("canvas_assignments")
+
+
+@require_POST
+@app_user_required
+def canvas_sync_stop(request):
+    canvas_user = _effective_canvas_user(request.user)
+    credential, _ = CanvasCredential.objects.get_or_create(user=canvas_user)
+    if credential.sync_status in {"queued", "running"}:
+        credential.sync_stop_requested = True
+        credential.sync_progress_note = "Stopping sync after current course..."
+        credential.save(update_fields=["sync_stop_requested", "sync_progress_note", "updated_at"])
+        messages.success(request, "Stop requested.")
+    else:
+        messages.info(request, "No running sync to stop.")
     return redirect("canvas_assignments")
 
 
@@ -751,9 +776,11 @@ def canvas_sync_progress(request):
             "total_courses": total,
             "processed_courses": processed,
             "current_course_name": credential.sync_current_course_name or "",
+            "progress_note": credential.sync_progress_note or "",
             "percent": percent,
             "last_error": credential.last_error or "",
             "sync_locked": sync_locked,
+            "stop_requested": bool(credential.sync_stop_requested),
         }
     )
 

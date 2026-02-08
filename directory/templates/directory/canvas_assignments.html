@@ -130,18 +130,31 @@
         {% if can_access_admin %}
           <a href="/admin-dashboard/" class="rb-button rb-button--ghost">Admin Dashboard</a>
         {% endif %}
-        <form method="post" action="/canvas/sync/" style="display:inline;">
+        <form
+          id="sync-start-form"
+          method="post"
+          action="{% url 'canvas_sync' %}"
+          style="display:{% if sync_locked %}none{% else %}inline{% endif %};"
+        >
           {% csrf_token %}
           <button
             id="sync-canvas-btn"
             class="rb-button rb-button--primary"
             type="submit"
-            {% if sync_locked %}disabled title="A sync is already running for this account group."{% endif %}
           >
             Sync Canvas
           </button>
         </form>
-        <form id="kick-sync-form" method="post" action="/canvas/sync/kick/" style="display:inline;">
+        <form
+          id="sync-stop-form"
+          method="post"
+          action="{% url 'canvas_sync_stop' %}"
+          style="display:{% if sync_locked %}inline{% else %}none{% endif %};"
+        >
+          {% csrf_token %}
+          <button id="stop-sync-btn" class="rb-button rb-button--primary" type="submit">Stop Sync</button>
+        </form>
+        <form id="kick-sync-form" method="post" action="{% url 'canvas_sync_kick' %}" style="display:inline;">
           {% csrf_token %}
           <button
             id="kick-sync-btn"
@@ -172,6 +185,7 @@
           <h3 class="rb-card__title">Sync Progress</h3>
           <p id="sync-status-line">Status: {{ credential.sync_status|default:"never" }}</p>
           <p id="sync-course-line"></p>
+          <p id="sync-note-line">{% if credential.sync_progress_note %}{{ credential.sync_progress_note }}{% endif %}</p>
           <div class="sync-progress-track" aria-label="Canvas sync progress">
             <div id="sync-progress-fill" class="sync-progress-fill"></div>
           </div>
@@ -358,10 +372,14 @@
       const fill = document.getElementById("sync-progress-fill");
       const statusLine = document.getElementById("sync-status-line");
       const courseLine = document.getElementById("sync-course-line");
+      const noteLine = document.getElementById("sync-note-line");
+      const syncStartForm = document.getElementById("sync-start-form");
+      const syncStopForm = document.getElementById("sync-stop-form");
       const syncCanvasBtn = document.getElementById("sync-canvas-btn");
+      const stopSyncBtn = document.getElementById("stop-sync-btn");
       const kickSyncBtn = document.getElementById("kick-sync-btn");
       const kickSyncForm = document.getElementById("kick-sync-form");
-      if (!progressWrap || !fill || !statusLine || !courseLine) return;
+      if (!progressWrap || !fill || !statusLine || !courseLine || !noteLine) return;
       let pollTimer = null;
 
       if (kickSyncForm) {
@@ -386,15 +404,23 @@
         } else {
           courseLine.textContent = "";
         }
+        noteLine.textContent = data.progress_note || "";
         const inProgress = data.status === "queued" || data.status === "running";
         progressWrap.classList.toggle("is-hidden", !inProgress);
         if (syncCanvasBtn) {
           const locked = Boolean(data.sync_locked);
-          syncCanvasBtn.disabled = locked;
-          if (locked) {
-            syncCanvasBtn.title = "A sync is already running for this account group.";
+          syncCanvasBtn.disabled = false;
+          syncCanvasBtn.removeAttribute("title");
+          if (syncStartForm) syncStartForm.style.display = locked ? "none" : "inline";
+        }
+        if (stopSyncBtn && syncStopForm) {
+          const locked = Boolean(data.sync_locked);
+          syncStopForm.style.display = locked ? "inline" : "none";
+          stopSyncBtn.disabled = Boolean(data.stop_requested);
+          if (data.stop_requested) {
+            stopSyncBtn.title = "Stop requested.";
           } else {
-            syncCanvasBtn.removeAttribute("title");
+            stopSyncBtn.removeAttribute("title");
           }
         }
         if (kickSyncBtn) {
@@ -415,7 +441,7 @@
           pollTimer = null;
         }
         try {
-          const resp = await fetch("/canvas/sync/progress/", { credentials: "same-origin" });
+          const resp = await fetch("{% url 'canvas_sync_progress' %}", { credentials: "same-origin" });
           if (!resp.ok) return;
           const data = await resp.json();
           const shouldContinue = render(data);

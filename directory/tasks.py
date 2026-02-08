@@ -1044,11 +1044,29 @@ def sync_canvas_for_user(user_id, existing_only=False):
         return
 
     client = CanvasClient(settings.CANVAS_URL, credential.token)
+    credential.refresh_from_db(fields=["sync_stop_requested"])
+    if credential.sync_stop_requested:
+        credential.sync_status = "stopped"
+        credential.sync_current_course_name = ""
+        credential.sync_progress_note = "Sync stopped by user."
+        credential.sync_stop_requested = False
+        credential.save(
+            update_fields=[
+                "sync_status",
+                "sync_current_course_name",
+                "sync_progress_note",
+                "sync_stop_requested",
+                "updated_at",
+            ]
+        )
+        return
+
     credential.sync_status = "running"
     credential.last_error = ""
     credential.sync_total_courses = 0
     credential.sync_processed_courses = 0
     credential.sync_current_course_name = ""
+    credential.sync_progress_note = ""
     credential.save(
         update_fields=[
             "sync_status",
@@ -1056,6 +1074,7 @@ def sync_canvas_for_user(user_id, existing_only=False):
             "sync_total_courses",
             "sync_processed_courses",
             "sync_current_course_name",
+            "sync_progress_note",
             "updated_at",
         ]
     )
@@ -1083,19 +1102,51 @@ def sync_canvas_for_user(user_id, existing_only=False):
                 continue
             eligible_courses.append(course_data)
 
+        existing_course_ids = set(
+            CanvasCourse.objects.filter(user_id=user_id, canvas_id__in=[c.get("id") for c in eligible_courses])
+            .values_list("canvas_id", flat=True)
+        )
+        existing_courses = [c for c in eligible_courses if c.get("id") in existing_course_ids]
+        new_courses = [c for c in eligible_courses if c.get("id") not in existing_course_ids]
+        eligible_courses = existing_courses + new_courses
+        first_new_course_index = len(existing_courses) + 1 if new_courses else None
+
         credential.sync_total_courses = len(eligible_courses)
         credential.sync_processed_courses = 0
         credential.sync_current_course_name = ""
+        credential.sync_progress_note = ""
         credential.save(
             update_fields=[
                 "sync_total_courses",
                 "sync_processed_courses",
                 "sync_current_course_name",
+                "sync_progress_note",
                 "updated_at",
             ]
         )
 
         for idx, course_data in enumerate(eligible_courses, start=1):
+            credential.refresh_from_db(fields=["sync_stop_requested"])
+            if credential.sync_stop_requested:
+                credential.sync_status = "stopped"
+                credential.sync_current_course_name = ""
+                credential.sync_progress_note = "Sync stopped by user."
+                credential.sync_stop_requested = False
+                credential.save(
+                    update_fields=[
+                        "sync_status",
+                        "sync_current_course_name",
+                        "sync_progress_note",
+                        "sync_stop_requested",
+                        "updated_at",
+                    ]
+                )
+                return
+
+            if first_new_course_index and idx == first_new_course_index:
+                credential.sync_progress_note = "Now syncing courses not yet in the database."
+                credential.save(update_fields=["sync_progress_note", "updated_at"])
+
             canvas_course_id = course_data.get("id")
             credential.sync_current_course_name = (course_data.get("name") or f"Course {canvas_course_id}")[:255]
             credential.save(update_fields=["sync_current_course_name", "updated_at"])
@@ -1166,12 +1217,14 @@ def sync_canvas_for_user(user_id, existing_only=False):
         credential.last_sync_at = dj_timezone.now()
         credential.last_error = ""
         credential.sync_current_course_name = ""
+        credential.sync_progress_note = ""
         credential.save(
             update_fields=[
                 "sync_status",
                 "last_sync_at",
                 "last_error",
                 "sync_current_course_name",
+                "sync_progress_note",
                 "updated_at",
             ]
         )
@@ -1179,11 +1232,13 @@ def sync_canvas_for_user(user_id, existing_only=False):
         credential.sync_status = "error"
         credential.last_error = str(exc)
         credential.sync_current_course_name = ""
+        credential.sync_progress_note = ""
         credential.save(
             update_fields=[
                 "sync_status",
                 "last_error",
                 "sync_current_course_name",
+                "sync_progress_note",
                 "updated_at",
             ]
         )
