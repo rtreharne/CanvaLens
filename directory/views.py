@@ -413,9 +413,12 @@ def index(request):
 @require_GET
 def embed_auth_start(request):
     next_path = _safe_next_path(request.GET.get("next"), "/")
+    attempted = (request.GET.get("attempted") or "").strip() == "1"
     if request.user.is_authenticated:
         return redirect(next_path)
 
+    iframe_return_url = f"/embed/auth/start/?{urlencode({'next': next_path, 'attempted': '1'})}"
+    iframe_login_url = f"/login/?{urlencode({'next': iframe_return_url})}"
     finish_url = f"/embed/auth/finish/?{urlencode({'next': next_path})}"
     login_url = f"/login/?{urlencode({'next': finish_url})}"
     return render(
@@ -423,6 +426,8 @@ def embed_auth_start(request):
         "directory/embed_auth_start.html",
         {
             "next_path": next_path,
+            "attempted": attempted,
+            "iframe_login_url": iframe_login_url,
             "login_url": login_url,
         },
     )

@@ -47,17 +47,27 @@
         <div class="rb-card__inner">
           {% include "directory/_staff_identity.html" %}
           <h2 class="rb-card__title">Continue in Canvas</h2>
-          <p class="rb-helper-line">
-            Canvas is opening Canvas Lens in an iframe. Some browsers block sign-in cookies in embedded pages.
-          </p>
-          <p class="rb-helper-line">
-            1. Sign in once in a new tab.<br />
-            2. Come back here and click <strong>Continue in Canvas</strong>.
-          </p>
-          <p class="rb-helper-line">
-            After sign-in, this page should continue automatically. If not, click <strong>Continue in Canvas</strong>.
-          </p>
+          {% if not attempted %}
+            <p class="rb-helper-line">
+              Trying sign-in inside this Canvas iframe first.
+            </p>
+            <p class="rb-helper-line">
+              If your browser blocks embedded cookies, we will fall back to sign-in in a new tab.
+            </p>
+          {% else %}
+            <p class="rb-helper-line">
+              Embedded sign-in was attempted. Your browser likely blocked iframe cookies.
+            </p>
+            <p class="rb-helper-line">
+              1. Sign in once in a new tab.<br />
+              2. Come back here and click <strong>Continue in Canvas</strong>.
+            </p>
+            <p class="rb-helper-line">
+              After sign-in, this page should continue automatically. If not, click <strong>Continue in Canvas</strong>.
+            </p>
+          {% endif %}
           <div class="rb-buttongroup">
+            <a class="rb-button rb-button--primary" href="{{ iframe_login_url }}">Sign in in this iframe</a>
             <a class="rb-button rb-button--primary" href="{{ login_url }}" target="_blank">Open Sign-in in New Tab</a>
             <button id="continue-btn" class="rb-button rb-button--primary" type="button">Continue in Canvas</button>
             <a class="rb-button rb-button--ghost" href="{{ next_path }}" target="_blank" rel="noopener">Open App in New Tab</a>
@@ -73,6 +83,8 @@
   <script>
     (function () {
       const nextPath = "{{ next_path|escapejs }}";
+      const iframeLoginUrl = "{{ iframe_login_url|escapejs }}";
+      const attempted = {% if attempted %}true{% else %}false{% endif %};
       const continueBtn = document.getElementById("continue-btn");
       const statusLine = document.getElementById("status-line");
       if (!continueBtn || !statusLine) return;
@@ -87,6 +99,15 @@
       }
 
       window.addEventListener("message", handleHandoffMessage);
+
+      if (!attempted) {
+        statusLine.classList.remove("rb-status--error");
+        statusLine.textContent = "Opening sign-in inside Canvas...";
+        window.setTimeout(function () {
+          window.location.href = iframeLoginUrl;
+        }, 120);
+        return;
+      }
 
       async function continueInCanvas() {
         statusLine.classList.remove("rb-status--error");
