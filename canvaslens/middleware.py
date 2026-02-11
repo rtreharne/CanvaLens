@@ -13,6 +13,10 @@ class StaffAccessMiddleware:
         "/admin",
         "/static",
         "/embed/auth",
+        "/canvas/assignments/moderate/shared",
+        "/canvas/assignments/moderate/shared/",
+        "/canvas/assignments/moderate/shared/progress",
+        "/canvas/assignments/moderate/shared/progress/",
     }
     EXEMPT_PREFIXES = (
         "/login/",
@@ -21,6 +25,7 @@ class StaffAccessMiddleware:
         "/admin/",
         "/static/",
         "/embed/auth/",
+        "/canvas/assignments/moderate/shared/",
     )
 
     def __init__(self, get_response):

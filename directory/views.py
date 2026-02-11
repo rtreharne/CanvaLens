@@ -2,6 +2,7 @@ from functools import wraps
 import re
 import secrets
 import json
+from calendar import monthrange
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -21,12 +22,14 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime, parse_date
 from datetime import datetime, time, timedelta
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
+from django.views.decorators.csrf import csrf_exempt
 
 from .canvas_client import CanvasClient, CanvasClientError
 from .models import (
     CanvasAssignment,
     CanvasAssignmentModerationReport,
     CanvasModerationAssignmentPreference,
+    CanvasModerationSignOff,
     CanvasModerationSubmissionReview,
     CanvasSubAccount,
     CanvasCourse,
@@ -44,6 +47,46 @@ from .tasks import (
 
 EMBED_AUTH_SALT = "canvaslens.embed_auth_handoff"
 EMBED_AUTH_MAX_AGE_SECONDS = 300
+MODERATION_MAGIC_LINK_SALT = "canvaslens.moderation_magic_link"
+MODERATION_MAGIC_LINK_EXPIRY_MONTHS = 6
+MODERATION_MAGIC_LINK_MAX_AGE_SECONDS = max(
+    1, int(getattr(settings, "MODERATION_MAGIC_LINK_MAX_AGE_SECONDS", 60 * 60 * 24 * 31 * 6))
+)
+MODERATION_SIGNOFF_INT_FIELDS = {
+    "total_scripts_checked",
+    "failed_scripts_checked",
+}
+MODERATION_SIGNOFF_CHOICE_FIELDS = {
+    "written_coursework_applicable",
+    "wc_all_marked",
+    "wc_marker_identity_clear",
+    "wc_correct_marks",
+    "wc_correct_rubric",
+    "wc_all_rubric_boxes_ticked",
+    "wc_feedback_provided",
+    "wc_mark_consistent_with_rubric",
+    "wc_level_appropriate",
+    "wc_marked_consistently",
+    "wc_all_parts_marked_and_added",
+    "wc_inter_marker_consistency",
+    "wc_other_problems",
+    "online_tests_applicable",
+    "ot_correct_marks_recorded",
+    "ot_item_analysis_accessed",
+    "ot_more_than_10_easy",
+    "ot_more_than_10_difficult",
+    "ot_more_than_10_not_discriminating",
+    "ot_actions_recommended",
+    "ot_other_problems",
+}
+MODERATION_SIGNOFF_TEXT_FIELDS = {
+    "assessment_type",
+    "assessment_code",
+    "summary_comments",
+    "moderator_signature_date",
+    "mo_signature_date_review",
+}
+MODERATION_SIGNOFF_CHOICE_VALUES = {"", "yes", "no", "na"}
 
 
 def app_user_required(view_func):
@@ -201,6 +244,68 @@ def _safe_next_path(value, fallback="/"):
     if not next_path.startswith("/") or next_path.startswith("//"):
         return fallback
     return next_path
+
+
+def _add_months(dt, months):
+    if months <= 0:
+        return dt
+    year = dt.year + ((dt.month - 1 + months) // 12)
+    month = ((dt.month - 1 + months) % 12) + 1
+    day = min(dt.day, monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def _build_moderation_magic_link_token(report):
+    issued_at = timezone.now()
+    payload = {
+        "report_id": report.id,
+        "user_id": report.user_id,
+        "issued_at": issued_at.isoformat(),
+        "nonce": secrets.token_urlsafe(16),
+    }
+    return signing.dumps(payload, salt=MODERATION_MAGIC_LINK_SALT)
+
+
+def _build_moderation_magic_link_url(request, report):
+    token = _build_moderation_magic_link_token(report)
+    path = f"/canvas/assignments/moderate/shared/?{urlencode({'token': token})}"
+    return request.build_absolute_uri(path)
+
+
+def _resolve_moderation_magic_link_report(token):
+    if not token:
+        return None
+    try:
+        payload = signing.loads(
+            token,
+            salt=MODERATION_MAGIC_LINK_SALT,
+            max_age=MODERATION_MAGIC_LINK_MAX_AGE_SECONDS,
+        )
+    except (signing.BadSignature, signing.SignatureExpired):
+        return None
+
+    report_id = payload.get("report_id")
+    user_id = payload.get("user_id")
+    issued_at = payload.get("issued_at")
+    try:
+        report_id = int(report_id)
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    issued_dt = parse_datetime(issued_at or "")
+    if not issued_dt:
+        return None
+    if timezone.is_naive(issued_dt):
+        issued_dt = timezone.make_aware(issued_dt, timezone.get_default_timezone())
+    expires_at = _add_months(issued_dt, MODERATION_MAGIC_LINK_EXPIRY_MONTHS)
+    if timezone.now() > expires_at:
+        return None
+
+    report = CanvasAssignmentModerationReport.objects.select_related("assignment", "assignment__course").filter(
+        id=report_id,
+        user_id=user_id,
+    ).first()
+    return report
 
 
 def _reports_for_user(user):
@@ -841,6 +946,7 @@ def canvas_burn_everything(request):
     deleted_submission_reports, _ = CanvasSubmissionReport.objects.filter(user=user).delete()
     deleted_staff_marking_reports, _ = CanvasStaffMarkingReport.objects.filter(user=user).delete()
     deleted_moderation_reports, _ = CanvasAssignmentModerationReport.objects.filter(user=user).delete()
+    deleted_signoffs, _ = CanvasModerationSignOff.objects.filter(user=user).delete()
     deleted_reviews, _ = CanvasModerationSubmissionReview.objects.filter(user=user).delete()
     deleted_preferences, _ = CanvasModerationAssignmentPreference.objects.filter(user=user).delete()
     deleted_assignments, _ = CanvasAssignment.objects.filter(course__user=user).delete()
@@ -853,6 +959,7 @@ def canvas_burn_everything(request):
         f"{deleted_submission_reports} submission reports, "
         f"{deleted_staff_marking_reports} staff marking reports, "
         f"{deleted_moderation_reports} moderation reports, "
+        f"{deleted_signoffs} moderation sign-off rows, "
         f"{deleted_reviews} moderation review rows, "
         f"and {deleted_preferences} moderation preference rows for your account.",
         extra_tags="danger_zone",
@@ -1067,6 +1174,9 @@ def canvas_assignment_moderate(request, assignment_id):
         )
         generate_assignment_moderation_report.delay(moderation_report.id)
         reports = [moderation_report]
+    for report in reports:
+        report.magic_link_url = _build_moderation_magic_link_url(request, report)
+    signoff_data = _signoff_data_for_report(canvas_user, moderation_report)
 
     return render(
         request,
@@ -1077,6 +1187,44 @@ def canvas_assignment_moderate(request, assignment_id):
             "moderation_report": moderation_report,
             "moderation_reports": reports,
             "active_report": active_report,
+            "is_read_only": False,
+            "is_magic_link": False,
+            "moderation_progress_url": f"/canvas/assignments/moderate/{moderation_report.id}/progress/",
+            "moderation_signoff_save_url": f"/canvas/assignments/moderate/{moderation_report.id}/signoff/save/",
+            "magic_link_expiry_months": MODERATION_MAGIC_LINK_EXPIRY_MONTHS,
+            "signoff_data": signoff_data,
+        },
+    )
+
+
+@require_GET
+def canvas_assignment_moderate_shared(request):
+    token = (request.GET.get("token") or "").strip()
+    report = _resolve_moderation_magic_link_report(token)
+    if not report:
+        return HttpResponse("This magic link is invalid or expired.", status=404)
+    report.magic_link_url = _build_moderation_magic_link_url(request, report)
+    stats_payload = dict(report.stats or {})
+    _inject_review_state(report, stats_payload)
+    signoff_data = _signoff_data_for_report(report.user, report)
+    progress_url = f"/canvas/assignments/moderate/shared/progress/?{urlencode({'token': token})}"
+    signoff_save_url = f"/canvas/assignments/moderate/shared/signoff/save/?{urlencode({'token': token})}"
+    return render(
+        request,
+        "directory/canvas_assignment_moderate.html",
+        {
+            "canvas_url": settings.CANVAS_URL,
+            "assignment": report.assignment,
+            "moderation_report": report,
+            "moderation_reports": [report],
+            "active_report": report if report.status in {"pending", "running"} else None,
+            "is_read_only": True,
+            "is_magic_link": True,
+            "moderation_progress_url": progress_url,
+            "moderation_signoff_save_url": signoff_save_url,
+            "magic_link_expiry_months": MODERATION_MAGIC_LINK_EXPIRY_MONTHS,
+            "shared_stats": stats_payload,
+            "signoff_data": signoff_data,
         },
     )
 
@@ -1193,6 +1341,57 @@ def canvas_assignment_moderate_progress(request, report_id):
     )
 
 
+@require_GET
+def canvas_assignment_moderate_shared_progress(request):
+    token = (request.GET.get("token") or "").strip()
+    report = _resolve_moderation_magic_link_report(token)
+    if not report:
+        return JsonResponse({"error": "Magic link is invalid or expired."}, status=404)
+    total = max(int(report.total_submissions or 0), 0)
+    processed = max(int(report.processed_submissions or 0), 0)
+    stats_payload = dict(report.stats or {})
+    _inject_review_state(report, stats_payload)
+    progress = (stats_payload.get("_progress") or {}) if isinstance(stats_payload, dict) else {}
+    extraction_processed = max(int(progress.get("extraction_processed") or 0), 0)
+    extraction_total = max(int(progress.get("extraction_total") or 0), 0)
+    processing_processed = max(int(progress.get("processing_processed") or 0), 0)
+    processing_total = max(int(progress.get("processing_total") or 0), 0)
+
+    extraction_percent = 0 if extraction_total <= 0 else int((extraction_processed / extraction_total) * 100)
+    extraction_percent = min(max(extraction_percent, 0), 100)
+    processing_percent = 0 if processing_total <= 0 else int((processing_processed / processing_total) * 100)
+    processing_percent = min(max(processing_percent, 0), 100)
+
+    if report.status == "completed":
+        extraction_percent = 100
+        processing_percent = 100
+        percent = 100
+    else:
+        percent = int(progress.get("overall_percent") or int((extraction_percent + processing_percent) / 2))
+        percent = min(max(percent, 0), 100)
+
+    return JsonResponse(
+        {
+            "id": report.id,
+            "status": report.status,
+            "active": report.status in {"pending", "running"},
+            "processed_submissions": processed,
+            "total_submissions": total,
+            "percent": percent,
+            "phase": progress.get("phase") or "",
+            "extraction_processed": extraction_processed,
+            "extraction_total": extraction_total,
+            "extraction_percent": extraction_percent,
+            "processing_processed": processing_processed,
+            "processing_total": processing_total,
+            "processing_percent": processing_percent,
+            "stats": stats_payload,
+            "error": report.error or "",
+            "assignment_id": report.assignment_id,
+        }
+    )
+
+
 def _inject_review_state(report, stats_payload):
     fail_threshold = _get_fail_threshold(report.user_id, report.assignment_id)
     stats_payload["selected_fail_threshold"] = fail_threshold
@@ -1252,6 +1451,42 @@ def _normalize_fail_threshold(value):
     except (TypeError, ValueError):
         return 40.0
     return 50.0 if numeric >= 45.0 else 40.0
+
+
+def _signoff_data_for_report(user, report):
+    signoff = CanvasModerationSignOff.objects.filter(
+        user=user,
+        report=report,
+    ).only("data").first()
+    if not signoff:
+        return {}
+    return dict(signoff.data or {})
+
+
+def _normalize_signoff_payload(raw_payload):
+    if not isinstance(raw_payload, dict):
+        return None
+    cleaned = {}
+    for key in MODERATION_SIGNOFF_TEXT_FIELDS:
+        cleaned[key] = str(raw_payload.get(key) or "").strip()
+    for key in MODERATION_SIGNOFF_INT_FIELDS:
+        raw = raw_payload.get(key)
+        if raw in (None, ""):
+            cleaned[key] = None
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        if value < 0:
+            return None
+        cleaned[key] = value
+    for key in MODERATION_SIGNOFF_CHOICE_FIELDS:
+        value = str(raw_payload.get(key) or "").strip().lower()
+        if value not in MODERATION_SIGNOFF_CHOICE_VALUES:
+            return None
+        cleaned[key] = value
+    return cleaned
 
 
 @require_POST
@@ -1375,6 +1610,74 @@ def canvas_assignment_moderate_save_threshold(request, report_id):
                 "checked_count": 0,
                 "issues_count": 0,
             },
+        }
+    )
+
+
+@require_POST
+@app_user_required
+def canvas_assignment_moderate_signoff_save(request, report_id):
+    canvas_user = _effective_canvas_user(request.user)
+    report = get_object_or_404(
+        CanvasAssignmentModerationReport.objects.select_related("assignment"),
+        id=report_id,
+        user=canvas_user,
+    )
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
+
+    normalized = _normalize_signoff_payload(payload)
+    if normalized is None:
+        return JsonResponse({"ok": False, "error": "Invalid sign-off values."}, status=400)
+
+    signoff, _ = CanvasModerationSignOff.objects.update_or_create(
+        user=canvas_user,
+        report=report,
+        defaults={
+            "assignment": report.assignment,
+            "data": normalized,
+        },
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "signoff_data": dict(signoff.data or {}),
+            "updated_at": signoff.updated_at.isoformat(),
+        }
+    )
+
+
+@require_POST
+@csrf_exempt
+def canvas_assignment_moderate_shared_signoff_save(request):
+    token = (request.GET.get("token") or "").strip()
+    report = _resolve_moderation_magic_link_report(token)
+    if not report:
+        return JsonResponse({"ok": False, "error": "Magic link is invalid or expired."}, status=404)
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
+
+    mo_signature = str((payload or {}).get("mo_signature_date_review") or "").strip()
+    existing_data = _signoff_data_for_report(report.user, report)
+    existing_data["mo_signature_date_review"] = mo_signature
+
+    signoff, _ = CanvasModerationSignOff.objects.update_or_create(
+        user=report.user,
+        report=report,
+        defaults={
+            "assignment": report.assignment,
+            "data": existing_data,
+        },
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "signoff_data": dict(signoff.data or {}),
+            "updated_at": signoff.updated_at.isoformat(),
         }
     )
 

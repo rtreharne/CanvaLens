@@ -260,6 +260,28 @@ class CanvasModerationAssignmentPreference(models.Model):
         return f"Moderation preference {self.assignment_id} ({self.fail_threshold})"
 
 
+class CanvasModerationSignOff(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="canvas_moderation_signoffs"
+    )
+    assignment = models.ForeignKey(
+        CanvasAssignment, on_delete=models.CASCADE, related_name="moderation_signoffs"
+    )
+    report = models.ForeignKey(
+        CanvasAssignmentModerationReport, on_delete=models.CASCADE, related_name="signoffs"
+    )
+    data = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "report")
+        ordering = ("-updated_at",)
+
+    def __str__(self):
+        return f"Moderation signoff report={self.report_id} user={self.user_id}"
+
+
 class CanvasSubAccount(models.Model):
     owner = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="canvas_subaccounts_owned"

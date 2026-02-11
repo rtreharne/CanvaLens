@@ -377,6 +377,31 @@
       font-weight: 600;
       color: #2b456d;
     }
+    .signoff-form-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 10px 0;
+    }
+    .signoff-form-table th,
+    .signoff-form-table td {
+      border-bottom: 1px solid #e6ebf4;
+      padding: 7px 10px;
+      text-align: left;
+      vertical-align: middle;
+      color: #2c3f60;
+      font-size: 0.9rem;
+    }
+    .signoff-form-table th {
+      width: 68%;
+      background: #f5f8fc;
+      font-weight: 600;
+      color: #2b456d;
+    }
+    .signoff-form-table td select {
+      width: 100%;
+      min-width: 160px;
+      max-width: 260px;
+    }
   </style>
 </head>
 <body class="rb-page">
@@ -390,6 +415,7 @@
     <a href="#moderation-outstanding-section">Outstanding marking</a>
     <a href="#moderation-methods-section">Statistical methods</a>
     <a href="#moderation-checked-section">Checked submissions</a>
+    <a href="#moderation-signoff-section">Sign Off</a>
     <button id="moderation-quicknav-close" class="rb-button rb-button--ghost moderation-quicknav-close" type="button">Close</button>
   </nav>
   <button id="moderation-quicknav-open" type="button" class="rb-button rb-button--primary moderation-quicknav-open" aria-label="Open page navigation">&#9776;</button>
@@ -417,16 +443,29 @@
 
   <section class="rb-block-cover">
     <div class="rb-block-container">
+      {% if is_magic_link %}
+        <div class="rb-card" style="margin-bottom:12px; border-color:#bfd8f1; background:#f1f7fd;">
+          <div class="rb-card__inner">
+            <p style="margin:0; color:#23466f;">
+              Viewing via magic link. This link works without login and expires {{ magic_link_expiry_months }} months after it was created.
+            </p>
+          </div>
+        </div>
+      {% endif %}
       <div class="rb-buttongroup" style="margin-bottom: 12px;">
-        <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Back to assignments</a>
+        {% if not is_magic_link %}
+          <a class="rb-button rb-button--ghost" href="/canvas/assignments/">Back to assignments</a>
+        {% endif %}
         {% if assignment.html_url %}
           <a class="rb-button rb-button--ghost" href="{{ assignment.html_url }}" target="_blank" rel="noopener">Open in Canvas</a>
         {% endif %}
         <button id="print-report-btn" type="button" class="rb-button rb-button--ghost">Print Report</button>
-        <form method="post" action="/canvas/assignments/{{ assignment.id }}/moderate/regenerate/" style="display:inline;">
-          {% csrf_token %}
-          <button type="submit" class="rb-button rb-button--primary">Regenerate report</button>
-        </form>
+        {% if not is_read_only %}
+          <form method="post" action="/canvas/assignments/{{ assignment.id }}/moderate/regenerate/" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="rb-button rb-button--primary">Regenerate report</button>
+          </form>
+        {% endif %}
       </div>
 
       <div id="moderation-assignment-overview" class="rb-card moderation-anchor">
@@ -472,7 +511,10 @@
                   <th>Started</th>
                   <th>Completed</th>
                   <th>Open</th>
-                  <th>Delete</th>
+                  {% if not is_read_only %}
+                    <th>Magic link</th>
+                    <th>Delete</th>
+                  {% endif %}
                 </tr>
               </thead>
               <tbody>
@@ -490,22 +532,41 @@
                     <td>{% if r.started_at %}{{ r.started_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
                     <td>{% if r.completed_at %}{{ r.completed_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
                     <td>
-                      <a href="/canvas/assignments/{{ assignment.id }}/moderate/?report={{ r.id }}">View</a>
-                    </td>
-                    <td>
-                      {% if r.id != moderation_report.id %}
-                        <form method="post" action="{% url 'canvas_assignment_moderate_delete' r.id %}" onsubmit="return confirm('Delete moderation report #{{ r.id }}?');">
-                          {% csrf_token %}
-                          <button type="submit">Delete</button>
-                        </form>
+                      {% if is_magic_link %}
+                        <span class="history-current">Current link</span>
                       {% else %}
-                        —
+                        <a href="/canvas/assignments/{{ assignment.id }}/moderate/?report={{ r.id }}">View</a>
                       {% endif %}
                     </td>
+                    {% if not is_read_only %}
+                      <td>
+                        {% if r.status == "completed" %}
+                          <button
+                            type="button"
+                            class="rb-button rb-button--ghost copy-magic-link-btn"
+                            data-magic-link="{{ r.magic_link_url }}"
+                          >
+                            Copy link
+                          </button>
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if r.id != moderation_report.id %}
+                          <form method="post" action="{% url 'canvas_assignment_moderate_delete' r.id %}" onsubmit="return confirm('Delete moderation report #{{ r.id }}?');">
+                            {% csrf_token %}
+                            <button type="submit">Delete</button>
+                          </form>
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                    {% endif %}
                   </tr>
                 {% empty %}
                   <tr>
-                    <td colspan="7">No moderation reports yet.</td>
+                    <td colspan="{% if is_read_only %}6{% else %}8{% endif %}">No moderation reports yet.</td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -532,7 +593,7 @@
           <p id="moderation-count-line" style="margin-top:0;"></p>
           <div class="rb-fieldgroup" style="margin-bottom:12px;">
             <label for="fail-threshold-input">Fail threshold (%)</label>
-            <select id="fail-threshold-input" style="max-width:160px;">
+            <select id="fail-threshold-input" style="max-width:160px;"{% if is_read_only %} disabled{% endif %}>
               <option value="40" selected>40%</option>
               <option value="50">50%</option>
             </select>
@@ -621,8 +682,25 @@
           <div id="moderation-checked-section" class="rb-card moderation-anchor" style="margin:12px 0 0 0;">
             <div class="rb-card__inner" style="padding:10px 12px;">
               <p style="margin:0 0 6px 0; font-weight:600;">Checked submissions</p>
+              <div style="margin:0 0 8px 0;">
+                <button
+                  id="checked-table-toggle-btn"
+                  type="button"
+                  class="rb-button rb-button--ghost"
+                  data-target-id="checked-submissions-table-wrap"
+                  aria-controls="checked-submissions-table-wrap"
+                  aria-expanded="false"
+                >
+                  Expand table
+                </button>
+              </div>
+              {% if not is_read_only %}
+                <div style="margin:0 0 8px 0;">
+                  <button id="checked-mark-all-btn" type="button" class="rb-button rb-button--ghost">Check all</button>
+                </div>
+              {% endif %}
               <p id="checked-submissions-summary" style="margin:0 0 8px 0; font-size:0.9rem; color:#41557b;"></p>
-              <div class="checked-table-wrap">
+              <div id="checked-submissions-table-wrap" class="checked-table-wrap">
                 <table class="checked-table">
                   <thead>
                     <tr>
@@ -641,6 +719,93 @@
               </div>
             </div>
           </div>
+          <div id="moderation-signoff-section" class="rb-card moderation-anchor" style="margin:12px 0 0 0;">
+            <div class="rb-card__inner" style="padding:10px 12px;">
+              <h3 class="rb-card__title">Sign Off</h3>
+              {% if is_magic_link %}
+                <p style="margin:0 0 10px 0; color:#41557b;">
+                  Sign-off fields are read-only in shared view, except MO signature &amp; date of review.
+                </p>
+              {% else %}
+                <p style="margin:0 0 10px 0; color:#41557b;">Complete and save the moderation sign-off form for this report.</p>
+              {% endif %}
+                <form id="moderation-signoff-form">
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-assessment-type">Assessment Type</label>
+                    <select id="signoff-assessment-type" name="assessment_type">
+                      <option value="">Select assessment type</option>
+                      <option value="written_coursework">Written Coursework</option>
+                      <option value="exam">Exam</option>
+                      <option value="online_test">Online Test</option>
+                    </select>
+                  </div>
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-assessment-code">Assessment Code</label>
+                    <input id="signoff-assessment-code" class="rb-input" type="text" name="assessment_code" />
+                  </div>
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-total-scripts-checked">Total number of scripts checked</label>
+                    <input id="signoff-total-scripts-checked" class="rb-input" type="number" min="0" step="1" name="total_scripts_checked" />
+                  </div>
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-failed-scripts-checked">Number of failed scripts checked</label>
+                    <input id="signoff-failed-scripts-checked" class="rb-input" type="number" min="0" step="1" name="failed_scripts_checked" />
+                  </div>
+
+                  <div id="signoff-written-coursework-fields" class="is-hidden">
+                    <h4 id="signoff-written-heading" style="margin:12px 0 8px 0;">Written Coursework</h4>
+                    <table class="signoff-form-table">
+                      <tbody>
+                        <tr><th><label for="signoff-wc-all-marked">All scripts were marked</label></th><td><select id="signoff-wc-all-marked" name="wc_all_marked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-marker-identity-clear">It is clear who has marked the work</label></th><td><select id="signoff-wc-marker-identity-clear" name="wc_marker_identity_clear"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-correct-marks">Correct marks on all scripts</label></th><td><select id="signoff-wc-correct-marks" name="wc_correct_marks"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-correct-rubric">Correct criteria used (correct rubric used)</label></th><td><select id="signoff-wc-correct-rubric" name="wc_correct_rubric"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-all-rubric-boxes-ticked">All rubric boxes ticked, including Academic Integrity</label></th><td><select id="signoff-wc-all-rubric-boxes-ticked" name="wc_all_rubric_boxes_ticked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr id="signoff-wc-feedback-row"><th><label for="signoff-wc-feedback-provided">Appropriate feedback provided on all scripts</label></th><td><select id="signoff-wc-feedback-provided" name="wc_feedback_provided"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-mark-consistent">Mark consistent with marking rubric statements and feedback</label></th><td><select id="signoff-wc-mark-consistent" name="wc_mark_consistent_with_rubric"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-level-appropriate">Level of marking appropriate</label></th><td><select id="signoff-wc-level-appropriate" name="wc_level_appropriate"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-marked-consistently">All scripts marked consistently</label></th><td><select id="signoff-wc-marked-consistently" name="wc_marked_consistently"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-all-parts-marked">All parts marked and marks added correctly</label></th><td><select id="signoff-wc-all-parts-marked" name="wc_all_parts_marked_and_added"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-inter-marker-consistency">Inter-marker consistency (if teams used)</label></th><td><select id="signoff-wc-inter-marker-consistency" name="wc_inter_marker_consistency"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-wc-other-problems">Were any other problems identified?</label></th><td><select id="signoff-wc-other-problems" name="wc_other_problems"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div id="signoff-online-test-fields" class="is-hidden">
+                    <h4 style="margin:12px 0 8px 0;">Online Tests</h4>
+                    <table class="signoff-form-table">
+                      <tbody>
+                        <tr><th><label for="signoff-ot-correct-marks">Correct marks recorded?</label></th><td><select id="signoff-ot-correct-marks" name="ot_correct_marks_recorded"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-ot-item-analysis">Item analysis accessed?</label></th><td><select id="signoff-ot-item-analysis" name="ot_item_analysis_accessed"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-ot-too-easy">More than 10% questions too easy?</label></th><td><select id="signoff-ot-too-easy" name="ot_more_than_10_easy"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-ot-too-difficult">More than 10% questions too difficult?</label></th><td><select id="signoff-ot-too-difficult" name="ot_more_than_10_difficult"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-ot-not-discriminating">More than 10% questions not discriminating?</label></th><td><select id="signoff-ot-not-discriminating" name="ot_more_than_10_not_discriminating"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-ot-actions">Actions recommended before reuse?</label></th><td><select id="signoff-ot-actions" name="ot_actions_recommended"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                        <tr><th><label for="signoff-ot-other-problems">Were any other problems identified?</label></th><td><select id="signoff-ot-other-problems" name="ot_other_problems"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option></select></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-summary-comments">Summary of comments, identified problems and proposed actions</label>
+                    <textarea id="signoff-summary-comments" class="checked-notes" style="min-height:120px;" name="summary_comments"></textarea>
+                  </div>
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-moderator-signature">Moderator signature &amp; date of completion</label>
+                    <input id="signoff-moderator-signature" class="rb-input" type="text" name="moderator_signature_date" />
+                  </div>
+                  <div class="rb-fieldgroup">
+                    <label for="signoff-mo-signature">MO signature &amp; date of review</label>
+                    <input id="signoff-mo-signature" class="rb-input" type="text" name="mo_signature_date_review" />
+                  </div>
+                  <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+                    <button id="signoff-save-btn" type="submit" class="rb-button rb-button--primary">Save Sign Off</button>
+                    <span id="signoff-save-status" style="font-size:0.9rem; color:#41557b;"></span>
+                  </div>
+                </form>
+            </div>
+          </div>
 
         </div>
       </div>
@@ -651,6 +816,10 @@
   <button id="back-to-top-btn" class="rb-button rb-button--primary back-to-top-btn is-hidden" type="button">
     Back to top
   </button>
+  {{ signoff_data|json_script:"signoff-initial-data" }}
+  {% if is_magic_link %}
+    {{ shared_stats|json_script:"shared-moderation-stats" }}
+  {% endif %}
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
@@ -705,7 +874,33 @@
     })();
 
     (function () {
+      const copyButtons = document.querySelectorAll(".copy-magic-link-btn[data-magic-link]");
+      if (!copyButtons.length || !navigator.clipboard) return;
+      copyButtons.forEach((btn) => {
+        btn.addEventListener("click", async function () {
+          const link = this.getAttribute("data-magic-link") || "";
+          if (!link) return;
+          try {
+            await navigator.clipboard.writeText(link);
+            this.textContent = "Copied";
+            setTimeout(() => {
+              this.textContent = "Copy link";
+            }, 1000);
+          } catch (err) {
+            // Non-fatal: keep default button state.
+          }
+        });
+      });
+    })();
+
+    (function () {
       const reportId = {{ moderation_report.id }};
+      const isReadOnly = {{ is_read_only|yesno:"true,false" }};
+      const isMagicLink = {{ is_magic_link|yesno:"true,false" }};
+      const progressUrl = "{{ moderation_progress_url|escapejs }}";
+      const moderationSignoffSaveUrl = "{{ moderation_signoff_save_url|escapejs }}";
+      const reportStatus = "{{ moderation_report.status|escapejs }}";
+      const reportError = "{{ moderation_report.error|escapejs }}";
       const statusLine = document.getElementById("moderation-status-line");
       const extractionLine = document.getElementById("moderation-extraction-line");
       const extractionFill = document.getElementById("moderation-extraction-fill");
@@ -735,11 +930,34 @@
       const boxplotTooltip = document.getElementById("boxplot-tooltip");
       const checkedSummary = document.getElementById("checked-submissions-summary");
       const checkedBody = document.getElementById("checked-submissions-body");
+      const checkedTableWrap = document.getElementById("checked-submissions-table-wrap");
+      const checkedTableToggleBtn = document.getElementById("checked-table-toggle-btn");
       const classificationZonesBody = document.getElementById("classification-zones-body");
       const classificationBorderlineLine = document.getElementById("classification-borderline-line");
       const outstandingGroupSets = document.getElementById("outstanding-group-sets");
       const printReportBtn = document.getElementById("print-report-btn");
+      const markAllCheckedBtn = document.getElementById("checked-mark-all-btn");
+      const signOffForm = document.getElementById("moderation-signoff-form");
+      const signOffAssessmentType = document.getElementById("signoff-assessment-type");
+      const signOffWrittenFields = document.getElementById("signoff-written-coursework-fields");
+      const signOffOnlineFields = document.getElementById("signoff-online-test-fields");
+      const signOffWrittenHeading = document.getElementById("signoff-written-heading");
+      const signOffWcFeedbackRow = document.getElementById("signoff-wc-feedback-row");
+      const signOffWcFeedbackSelect = document.getElementById("signoff-wc-feedback-provided");
+      const signOffSaveBtn = document.getElementById("signoff-save-btn");
+      const signOffSaveStatus = document.getElementById("signoff-save-status");
       if (!reportId || !statusLine || !extractionLine || !extractionFill || !processingLine || !processingFill) return;
+      let sharedStats = null;
+      if (isReadOnly) {
+        const sharedStatsEl = document.getElementById("shared-moderation-stats");
+        if (sharedStatsEl && sharedStatsEl.textContent) {
+          try {
+            sharedStats = JSON.parse(sharedStatsEl.textContent);
+          } catch (err) {
+            sharedStats = null;
+          }
+        }
+      }
 
       let pollTimer = null;
       let latestScoreValues = [];
@@ -750,6 +968,8 @@
       let failThresholdSaveTimer = null;
       let saveTimersBySubmission = {};
       let reviewMap = {};
+      let anonymizedLabelsBySubmission = {};
+      let anonymizedLabelCounter = 1;
       const histogramState = {
         d3: null,
         x: null,
@@ -774,6 +994,19 @@
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#39;");
+      }
+
+      function getAnonymizedStudentLabel(submissionId, fallbackIndex) {
+        const key = String(submissionId || "");
+        if (!key) {
+          const offset = Number.isFinite(Number(fallbackIndex)) ? Number(fallbackIndex) : 0;
+          return "Student " + String(anonymizedLabelCounter + offset);
+        }
+        if (!anonymizedLabelsBySubmission[key]) {
+          anonymizedLabelsBySubmission[key] = "Student " + String(anonymizedLabelCounter);
+          anonymizedLabelCounter += 1;
+        }
+        return anonymizedLabelsBySubmission[key];
       }
 
       function hideTooltipSoon() {
@@ -924,6 +1157,10 @@
         if (!checkedSummary || !checkedBody) return;
         const rows = Array.isArray(stats.checked_submissions) ? stats.checked_submissions : [];
         latestCheckedRows = rows.slice();
+        if (!isReadOnly) {
+          anonymizedLabelsBySubmission = {};
+          anonymizedLabelCounter = 1;
+        }
         const total = Number(stats.submissions_count || 0);
         const tenPercent = Math.ceil(total * 0.10);
         checkedSummary.textContent = "Selected " + rows.length + " rows. Pass sample target: " + tenPercent + " (10% of all submissions, including any boundary passes within 2% of 50/60/70), plus all fails.";
@@ -936,27 +1173,37 @@
           const linkHtml = row.submission_url
             ? "<a href=\"" + escapeHtml(row.submission_url) + "\" target=\"_blank\" rel=\"noopener\">Open</a>"
             : "—";
+          const submissionKey = row.submission_id !== null && row.submission_id !== undefined ? String(row.submission_id) : "";
+          const studentLabel = isReadOnly
+            ? getAnonymizedStudentLabel(submissionKey, idx)
+            : (row.student_name || "Unknown");
+          const studentCellHtml = (isReadOnly && row.submission_url)
+            ? "<a href=\"" + escapeHtml(row.submission_url) + "\" target=\"_blank\" rel=\"noopener\">" + escapeHtml(studentLabel) + "</a>"
+            : escapeHtml(studentLabel);
           const statusBadge = isFail
             ? "<span class=\"checked-status-badge checked-status-fail\">FAIL</span>"
             : "<span class=\"checked-status-badge checked-status-pass\">PASS</span>";
-          const submissionKey = row.submission_id !== null && row.submission_id !== undefined ? String(row.submission_id) : "";
           const saved = reviewMap[submissionKey] || {};
           const safeId = submissionKey ? escapeHtml(submissionKey) : "";
           const checkedAttr = saved.is_checked ? " checked" : "";
           const issueAttr = saved.has_issue ? " checked" : "";
+          const disabledAttr = isReadOnly ? " disabled" : "";
+          const readOnlyAttr = isReadOnly ? " readonly" : "";
           const notesValue = escapeHtml(saved.notes || "");
           tr.innerHTML =
             "<td>" + statusBadge + "</td>" +
-            "<td>" + escapeHtml(row.student_name || "Unknown") + "</td>" +
+            "<td>" + studentCellHtml + "</td>" +
             "<td>" + escapeHtml(row.grader_name || "—") + "</td>" +
             "<td>" + escapeHtml(scoreText) + "</td>" +
             "<td>" + linkHtml + "</td>" +
-            "<td><textarea class=\"checked-notes\" placeholder=\"Notes\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\">" + notesValue + "</textarea></td>" +
-            "<td><input class=\"checked-signoff checked-toggle\" type=\"checkbox\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\" aria-label=\"Checked for " + escapeHtml(row.student_name || "submission") + "\"" + checkedAttr + " /></td>" +
-            "<td><input class=\"checked-signoff issue-toggle\" type=\"checkbox\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\" aria-label=\"Issue for " + escapeHtml(row.student_name || "submission") + "\"" + issueAttr + " /></td>";
+            "<td><textarea class=\"checked-notes\" placeholder=\"Notes\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\"" + readOnlyAttr + disabledAttr + ">" + notesValue + "</textarea></td>" +
+            "<td><input class=\"checked-signoff checked-toggle\" type=\"checkbox\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\" aria-label=\"Checked for " + escapeHtml(studentLabel || "submission") + "\"" + checkedAttr + disabledAttr + " /></td>" +
+            "<td><input class=\"checked-signoff issue-toggle\" type=\"checkbox\" data-row=\"" + String(idx) + "\" data-submission-id=\"" + safeId + "\" aria-label=\"Issue for " + escapeHtml(studentLabel || "submission") + "\"" + issueAttr + disabledAttr + " /></td>";
           checkedBody.appendChild(tr);
         });
-        wireCheckedSubmissionInputs();
+        if (!isReadOnly) {
+          wireCheckedSubmissionInputs();
+        }
       }
 
       function getCookie(name) {
@@ -968,6 +1215,85 @@
           }
         }
         return "";
+      }
+
+      function loadSignOffForm(initialData) {
+        if (!signOffForm || !initialData || typeof initialData !== "object") return;
+        const fields = signOffForm.querySelectorAll("input[name], select[name], textarea[name]");
+        fields.forEach((field) => {
+          const key = field.name;
+          if (!Object.prototype.hasOwnProperty.call(initialData, key)) return;
+          const raw = initialData[key];
+          if (raw === null || raw === undefined) {
+            field.value = "";
+            return;
+          }
+          field.value = String(raw);
+        });
+      }
+
+      function collectSignOffPayload() {
+        if (!signOffForm) return {};
+        const payload = {};
+        const fields = signOffForm.querySelectorAll("input[name], select[name], textarea[name]");
+        fields.forEach((field) => {
+          payload[field.name] = field.value;
+        });
+        return payload;
+      }
+
+      function updateSignOffSectionVisibility() {
+        if (!signOffAssessmentType || !signOffWrittenFields || !signOffOnlineFields) return;
+        const selected = String(signOffAssessmentType.value || "").trim();
+        const showWritten = selected === "written_coursework" || selected === "exam";
+        const showOnline = selected === "online_test";
+        const isExam = selected === "exam";
+        signOffWrittenFields.classList.toggle("is-hidden", !showWritten);
+        signOffOnlineFields.classList.toggle("is-hidden", !showOnline);
+        if (signOffWrittenHeading) {
+          signOffWrittenHeading.textContent = isExam ? "Exam" : "Written Coursework";
+        }
+        if (signOffWcFeedbackRow) {
+          signOffWcFeedbackRow.classList.toggle("is-hidden", isExam);
+        }
+        if (isExam && signOffWcFeedbackSelect) {
+          signOffWcFeedbackSelect.value = "";
+        }
+      }
+
+      async function saveSignOffForm() {
+        if (!signOffForm) return;
+        if (isReadOnly && !isMagicLink) return;
+        const payload = (isReadOnly && isMagicLink)
+          ? { mo_signature_date_review: (signOffForm.querySelector("[name='mo_signature_date_review']") || {}).value || "" }
+          : collectSignOffPayload();
+        if (signOffSaveBtn) signOffSaveBtn.disabled = true;
+        if (signOffSaveStatus) signOffSaveStatus.textContent = "Saving...";
+        try {
+          const headers = {
+            "Content-Type": "application/json",
+          };
+          if (!isReadOnly) {
+            headers["X-CSRFToken"] = getCookie("csrftoken");
+          }
+          const resp = await fetch(moderationSignoffSaveUrl, {
+            method: "POST",
+            credentials: isReadOnly ? "omit" : "same-origin",
+            headers: headers,
+            body: JSON.stringify(payload),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            if (signOffSaveStatus) signOffSaveStatus.textContent = (data && data.error) ? data.error : "Save failed.";
+            return;
+          }
+          loadSignOffForm(data.signoff_data || {});
+          if (signOffSaveStatus) signOffSaveStatus.textContent = "Saved.";
+        } catch (err) {
+          if (signOffSaveStatus) signOffSaveStatus.textContent = "Save failed.";
+        } finally {
+          if (signOffSaveBtn) signOffSaveBtn.disabled = false;
+        }
       }
 
       function findCheckedRowBySubmissionId(submissionId) {
@@ -988,6 +1314,7 @@
       }
 
       async function saveCheckedSubmissionReview(submissionId) {
+        if (isReadOnly) return;
         if (!submissionId) return;
         const notesEl = findSubmissionControl("textarea.checked-notes[data-submission-id]", submissionId);
         const checkedEl = findSubmissionControl("input.checked-toggle[data-submission-id]", submissionId);
@@ -1056,7 +1383,28 @@
         });
       }
 
+      function markAllChecked() {
+        if (!checkedBody || isReadOnly) return;
+        const checkedInputs = checkedBody.querySelectorAll("input.checked-toggle[data-submission-id]");
+        checkedInputs.forEach((el) => {
+          const submissionId = el.getAttribute("data-submission-id") || "";
+          if (!submissionId) return;
+          if (!el.checked) {
+            el.checked = true;
+          }
+          saveCheckedSubmissionReview(submissionId);
+        });
+      }
+
+      function setCheckedTableCollapsed(collapsed) {
+        if (!checkedTableWrap || !checkedTableToggleBtn) return;
+        checkedTableWrap.classList.toggle("is-hidden", collapsed);
+        checkedTableToggleBtn.textContent = collapsed ? "Expand table" : "Collapse table";
+        checkedTableToggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      }
+
       async function saveFailThreshold() {
+        if (isReadOnly) return;
         if (!thresholdInput) return;
         const failThreshold = Number(thresholdInput.value);
         if (Number.isNaN(failThreshold)) return;
@@ -1560,9 +1908,12 @@
             .on("mouseenter", function (event, p) {
               if (!boxplotTooltip) return;
               if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+              const displayName = isReadOnly
+                ? getAnonymizedStudentLabel(p.submission_id, 0)
+                : (p.student_name || "Unknown student");
               const scoreText = fmt(p.score) + (latestIsPercentage ? "%" : "");
               boxplotTooltip.innerHTML =
-                "<div><strong>" + escapeHtml(p.student_name || "Unknown student") + "</strong></div>" +
+                "<div><strong>" + escapeHtml(displayName) + "</strong></div>" +
                 "<div>Score: " + escapeHtml(scoreText) + "</div>" +
                 (p.submission_url
                   ? "<div><a href=\"" + escapeHtml(p.submission_url) + "\" target=\"_blank\" rel=\"noopener\">Open submission</a></div>"
@@ -1611,8 +1962,8 @@
           pollTimer = null;
         }
         try {
-          const resp = await fetch("/canvas/assignments/moderate/" + reportId + "/progress/", {
-            credentials: "same-origin",
+          const resp = await fetch(progressUrl, {
+            credentials: isReadOnly ? "omit" : "same-origin",
           });
           if (!resp.ok) return;
           const data = await resp.json();
@@ -1649,12 +2000,34 @@
         }
       }
 
-      poll();
+      if (isReadOnly) {
+        progressCard.classList.add("is-hidden");
+        if (reportStatus === "completed") {
+          if (sharedStats && Number(sharedStats.count || 0) > 0) {
+            renderStats(sharedStats);
+            statsCard.classList.remove("is-hidden");
+          } else {
+            emptyCard.classList.remove("is-hidden");
+          }
+        } else if (reportStatus === "failed") {
+          errorCard.classList.remove("is-hidden");
+          errorText.textContent = reportError || "Moderation failed.";
+        } else {
+          emptyCard.classList.remove("is-hidden");
+          const emptyInner = emptyCard.querySelector(".rb-card__inner");
+          if (emptyInner) {
+            emptyInner.textContent = "This shared report is not complete yet. Share a completed report to view all sections.";
+          }
+        }
+      } else {
+        poll();
+      }
 
       if (thresholdInput) {
         thresholdInput.addEventListener("change", function () {
           updateFailCount();
           renderClassificationZones();
+          if (isReadOnly) return;
           if (failThresholdSaveTimer) clearTimeout(failThresholdSaveTimer);
           failThresholdSaveTimer = setTimeout(saveFailThreshold, 200);
         });
@@ -1674,6 +2047,69 @@
       if (printReportBtn) {
         printReportBtn.addEventListener("click", function () {
           window.print();
+        });
+      }
+      if (markAllCheckedBtn) {
+        markAllCheckedBtn.addEventListener("click", function () {
+          markAllChecked();
+        });
+      }
+      if (checkedTableToggleBtn) {
+        checkedTableToggleBtn.addEventListener("click", function () {
+          const targetId = this.getAttribute("data-target-id") || "";
+          const targetEl = targetId ? document.getElementById(targetId) : checkedTableWrap;
+          const collapsed = targetEl ? targetEl.classList.contains("is-hidden") : false;
+          if (targetEl && targetEl !== checkedTableWrap) {
+            targetEl.classList.toggle("is-hidden", !collapsed);
+            this.textContent = collapsed ? "Collapse table" : "Expand table";
+            this.setAttribute("aria-expanded", collapsed ? "true" : "false");
+            return;
+          }
+          setCheckedTableCollapsed(!collapsed);
+        });
+        setCheckedTableCollapsed(true);
+      }
+      if (signOffForm && !isReadOnly) {
+        const signOffDataEl = document.getElementById("signoff-initial-data");
+        if (signOffDataEl && signOffDataEl.textContent) {
+          try {
+            loadSignOffForm(JSON.parse(signOffDataEl.textContent));
+          } catch (err) {
+            // Ignore malformed preloaded signoff JSON.
+          }
+        }
+        updateSignOffSectionVisibility();
+        if (signOffAssessmentType) {
+          signOffAssessmentType.addEventListener("change", function () {
+            updateSignOffSectionVisibility();
+          });
+        }
+        signOffForm.addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          saveSignOffForm();
+        });
+      }
+      if (signOffForm && isReadOnly && isMagicLink) {
+        const signOffDataEl = document.getElementById("signoff-initial-data");
+        if (signOffDataEl && signOffDataEl.textContent) {
+          try {
+            loadSignOffForm(JSON.parse(signOffDataEl.textContent));
+          } catch (err) {
+            // Ignore malformed preloaded signoff JSON.
+          }
+        }
+        updateSignOffSectionVisibility();
+        const fields = signOffForm.querySelectorAll("input[name], select[name], textarea[name]");
+        fields.forEach((field) => {
+          if (field.name === "mo_signature_date_review") return;
+          field.disabled = true;
+        });
+        if (signOffAssessmentType) {
+          signOffAssessmentType.disabled = true;
+        }
+        signOffForm.addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          saveSignOffForm();
         });
       }
       window.addEventListener("resize", function () {

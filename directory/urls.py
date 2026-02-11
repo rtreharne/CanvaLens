@@ -54,6 +54,21 @@ urlpatterns = [
         name="canvas_assignment_moderate_progress",
     ),
     path(
+        "canvas/assignments/moderate/shared/",
+        views.canvas_assignment_moderate_shared,
+        name="canvas_assignment_moderate_shared",
+    ),
+    path(
+        "canvas/assignments/moderate/shared/progress/",
+        views.canvas_assignment_moderate_shared_progress,
+        name="canvas_assignment_moderate_shared_progress",
+    ),
+    path(
+        "canvas/assignments/moderate/shared/signoff/save/",
+        views.canvas_assignment_moderate_shared_signoff_save,
+        name="canvas_assignment_moderate_shared_signoff_save",
+    ),
+    path(
         "canvas/assignments/moderate/<int:report_id>/delete/",
         views.canvas_assignment_moderate_delete,
         name="canvas_assignment_moderate_delete",
@@ -67,6 +82,11 @@ urlpatterns = [
         "canvas/assignments/moderate/<int:report_id>/threshold/save/",
         views.canvas_assignment_moderate_save_threshold,
         name="canvas_assignment_moderate_save_threshold",
+    ),
+    path(
+        "canvas/assignments/moderate/<int:report_id>/signoff/save/",
+        views.canvas_assignment_moderate_signoff_save,
+        name="canvas_assignment_moderate_signoff_save",
     ),
     path("canvas/reports/table/", views.canvas_reports_table, name="canvas_reports_table"),
     path("canvas/reports/create/", views.canvas_reports_create, name="canvas_reports_create"),
